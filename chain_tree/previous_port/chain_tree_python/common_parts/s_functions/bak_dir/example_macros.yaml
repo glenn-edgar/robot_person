@@ -1,0 +1,152 @@
+# Macro Definitions for LispSequencer
+# File: macros.yaml
+
+macros:
+  # Basic logging pipeline wrapper
+  log_pipeline:
+    params: [msg, func]
+    template: |
+      (pipeline 
+        (@log $msg)
+        $func
+        'CFL_CONTINUE)
+  
+  # Validated action with fallback
+  validated_action:
+    params: [check, action]
+    template: |
+      (if $check
+          (pipeline $action 'CFL_CONTINUE)
+          'CFL_HALT)
+  
+  # Safe action with start/end logging
+  safe_action:
+    params: [func]
+    template: |
+      (pipeline 
+        (@log "Starting action")
+        $func
+        (@log "Action completed")
+        'CFL_CONTINUE)
+  
+  # Full event handler template
+  event_handler:
+    params: [validator, processor, notifier]
+    template: |
+      (pipeline
+        $validator
+        $processor
+        $notifier
+        'CFL_CONTINUE)
+  
+  # Conditional with dual validation
+  dual_check:
+    params: [check1, check2, action]
+    template: |
+      (if (and $check1 $check2)
+          (pipeline $action 'CFL_CONTINUE)
+          'CFL_HALT)
+  
+  # Try-catch style error handling
+  try_action:
+    params: [action, fallback]
+    template: |
+      (cond
+        ($action (pipeline (@log "Success") 'CFL_CONTINUE))
+        (else (pipeline (@log "Failed") $fallback 'CFL_RESET)))
+  
+  # Notification wrapper
+  with_notification:
+    params: [recipient, message, action]
+    template: |
+      (pipeline
+        (@send_notification $recipient)
+        $action
+        (@log $message)
+        'CFL_CONTINUE)
+  
+  # Multi-step validation
+  validate_and_act:
+    params: [validator, processor]
+    template: |
+      (if $validator
+          (pipeline 
+            (@log "Validation passed")
+            $processor
+            'CFL_CONTINUE)
+          (pipeline
+            (@log "Validation failed")
+            'CFL_HALT))
+  
+  # Conditional routing
+  route_by_condition:
+    params: [condition, true_action, false_action]
+    template: |
+      (if $condition
+          $true_action
+          $false_action)
+  
+  # Debug wrapper
+  debug_action:
+    params: [debug_msg, action]
+    template: |
+      (debug $debug_msg
+        (pipeline $action 'CFL_CONTINUE))
+  
+  # Timed action (with start/end timestamps)
+  timed_action:
+    params: [action, label]
+    template: |
+      (pipeline
+        (@timestamp_start $label)
+        $action
+        (@timestamp_end $label)
+        'CFL_CONTINUE)
+  
+  # Permission-checked action
+  authorized_action:
+    params: [permission_check, action]
+    template: |
+      (if $permission_check
+          (pipeline $action 'CFL_CONTINUE)
+          (pipeline 
+            (@log "Unauthorized")
+            'CFL_HALT))
+  
+  # Rate-limited action
+  rate_limited_action:
+    params: [rate_check, action]
+    template: |
+      (if $rate_check
+          (pipeline $action 'CFL_CONTINUE)
+          (pipeline
+            (@log "Rate limit exceeded")
+            'CFL_RESET))
+  
+  # Transactional wrapper
+  transactional:
+    params: [begin_tx, action, commit_tx, rollback_tx]
+    template: |
+      (cond
+        ($begin_tx
+         (cond
+           ($action
+            (pipeline $commit_tx 'CFL_CONTINUE))
+           (else
+            (pipeline $rollback_tx 'CFL_HALT))))
+        (else
+         (pipeline (@log "Failed to begin transaction") 'CFL_HALT)))
+  
+  # Retry wrapper (conceptual - actual retry would need control loop)
+  with_retry:
+    params: [action, max_retries]
+    template: |
+      (cond
+        ($action 'CFL_CONTINUE)
+        (else 
+         (pipeline 
+           (@log "Action failed")
+           (@set_retry_count $max_retries)
+           'CFL_RESET)))
+
+

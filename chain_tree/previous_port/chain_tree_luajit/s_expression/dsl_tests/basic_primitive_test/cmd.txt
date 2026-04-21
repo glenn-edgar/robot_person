@@ -1,0 +1,5 @@
+luajit test_dispatch.lua                                    # uses complex_sequence_module
+luajit test_dispatch.lua my_module                          # named module
+luajit test_dispatch.lua my_module my_tree_name             # specific tree by name
+luajit test_dispatch.lua my_module 0xDEADBEEF               # specific tree by hash
+

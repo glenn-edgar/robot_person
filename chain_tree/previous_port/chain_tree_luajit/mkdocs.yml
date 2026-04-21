@@ -1,0 +1,18 @@
+site_name: ChainTree LuaJIT Dict Runtime
+site_description: Dict-based ChainTree runtime — architecture, DSL, builtins, S-Engine bridge, user functions, and test suites
+docs_dir: docs
+theme:
+  name: material
+
+nav:
+  - Home: index.md
+  - DSL Design: dsl_design.md
+  - Runtime System: runtime_system.md
+  - Builtins: builtins.md
+  - S-Engine Bridge: se_bridge.md
+  - User Functions: user_functions.md
+  - SE User Functions: se_user_functions.md
+  - Tests:
+    - Incremental Binary: tests/README_incremental_binary.md
+    - S-Engine Test 1: tests/README_s_test_binary.md
+    - S-Engine Test 2: tests/README_s_engine_test_2.md

@@ -1,0 +1,802 @@
+# ChainTree Debug YAML Output
+# Generated: 2026-03-28T03:12:31Z
+---
+kb.complete_functions_kb.complete_functions.complete_functions:
+  label: complete_functions
+  label_dict:
+    array_index: "45"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links:
+      - kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.one_shot_functions
+      - kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.boolean_functions
+      - kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.main_functions
+    ltree_name: kb.complete_functions_kb.complete_functions.complete_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.complete_functions_kb
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: complete_functions
+kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.boolean_functions:
+  label: complete_functions
+  label_dict:
+    array_index: "47"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.boolean_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.complete_functions_kb.complete_functions.complete_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_NULL: true
+    CFL_GATE_NODE_NULL: true
+    CFL_NULL: true
+    SE_CUSTOM_BB_LOAD: true
+    USER_REGISTER_S_FUNCTIONS: true
+  node_name: boolean_functions
+kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.main_functions:
+  label: complete_functions
+  label_dict:
+    array_index: "48"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.main_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.complete_functions_kb.complete_functions.complete_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_MAIN: true
+    CFL_DISABLE: true
+    CFL_GATE_NODE_MAIN: true
+    CFL_NULL: true
+    CFL_SE_MODULE_LOAD_MAIN: true
+    CFL_SE_TICK_MAIN: true
+    CFL_SE_TREE_LOAD_MAIN: true
+    CFL_TERMINATE_SYSTEM: true
+    CFL_WAIT_TIME: true
+  node_name: main_functions
+kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.one_shot_functions:
+  label: complete_functions
+  label_dict:
+    array_index: "46"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.complete_functions_kb.complete_functions.complete_functions.complete_functions.one_shot_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.complete_functions_kb.complete_functions.complete_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_INIT: true
+    CFL_COLUMN_TERM: true
+    CFL_GATE_NODE_INIT: true
+    CFL_GATE_NODE_TERM: true
+    CFL_LOG_MESSAGE: true
+    CFL_NULL: true
+    CFL_SE_MODULE_LOAD_INIT: true
+    CFL_SE_MODULE_LOAD_TERM: true
+    CFL_SE_TICK_INIT: true
+    CFL_SE_TICK_TERM: true
+    CFL_SE_TREE_LOAD_INIT: true
+    CFL_SE_TREE_LOAD_TERM: true
+    CFL_WAIT_TIME_INIT: true
+  node_name: one_shot_functions
+kb.event_string_table_kb.event_strings.event_string_table:
+  label: event_strings
+  label_dict:
+    array_index: "49"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.event_string_table_kb.event_strings.event_string_table
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.event_string_table_kb
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_CHANGE_STATE_EVENT: "17"
+    CFL_DAY_EVENT: "8"
+    CFL_HEARTBEAT_EVENT: "15"
+    CFL_HOUR_EVENT: "7"
+    CFL_INIT_EVENT: "0"
+    CFL_MINUTE_EVENT: "6"
+    CFL_MONTH_EVENT: "10"
+    CFL_RAISE_EXCEPTION_EVENT: "12"
+    CFL_RESET_STATE_MACHINE_EVENT: "18"
+    CFL_SECOND_EVENT: "5"
+    CFL_SET_EXCEPTION_STEP_EVENT: "16"
+    CFL_START_TESTS: "2"
+    CFL_TERMINATE_EVENT: "1"
+    CFL_TERMINATE_STATE_MACHINE_EVENT: "19"
+    CFL_TERMINATE_TESTS: "3"
+    CFL_TIMER_EVENT: "4"
+    CFL_TURN_HEARTBEAT_OFF_EVENT: "14"
+    CFL_TURN_HEARTBEAT_ON_EVENT: "13"
+    CFL_WEEK_EVENT: "9"
+    CFL_YEAR_EVENT: "11"
+  node_name: event_string_table
+kb.se_basic_load_test.GATE_root._0:
+  label: GATE_root
+  label_dict:
+    array_index: "0"
+    aux_function_name: CFL_GATE_NODE_NULL
+    initialization_function_name: CFL_GATE_NODE_INIT
+    links:
+      - kb.se_basic_load_test.GATE_root._0.COL_se_m._0
+    ltree_name: kb.se_basic_load_test.GATE_root._0
+    main_function_name: CFL_GATE_NODE_MAIN
+    parent_ltree_name: kb.se_basic_load_test
+    termination_function_name: CFL_GATE_NODE_TERM
+  node_dict:
+    version: 1.0.0
+  node_name: _0
+kb.se_basic_load_test.GATE_root._0.COL_se_m._0:
+  label: COL_se_m
+  label_dict:
+    array_index: "1"
+    aux_function_name: CFL_COLUMN_NULL
+    initialization_function_name: CFL_COLUMN_INIT
+    links:
+      - kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_MOD_LOAD._0
+      - kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._1
+      - kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_TICK._2
+      - kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3
+    ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0
+    main_function_name: CFL_COLUMN_MAIN
+    parent_ltree_name: kb.se_basic_load_test.GATE_root._0
+    termination_function_name: CFL_COLUMN_TERM
+  node_dict:
+    auto_start: true
+  node_name: _0
+kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3:
+  label: COL_se_r
+  label_dict:
+    array_index: "5"
+    aux_function_name: CFL_COLUMN_NULL
+    initialization_function_name: CFL_COLUMN_INIT
+    links:
+      - kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3.LEAF._0
+      - kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3.LEAF._1
+    ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3
+    main_function_name: CFL_COLUMN_MAIN
+    parent_ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_COLUMN_TERM
+  node_dict:
+    auto_start: true
+  node_name: _3
+kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3.LEAF._0:
+  label: LEAF
+  label_dict:
+    array_index: "6"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_LOG_MESSAGE
+    links: []
+    ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3.LEAF._0
+    main_function_name: CFL_DISABLE
+    parent_ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3
+    termination_function_name: CFL_NULL
+  node_dict:
+    message: "s-engine tree complete, shutting down"
+  node_name: _0
+kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3.LEAF._1:
+  label: LEAF
+  label_dict:
+    array_index: "7"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3.LEAF._1
+    main_function_name: CFL_TERMINATE_SYSTEM
+    parent_ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.COL_se_r._3
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: _1
+kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_MOD_LOAD._0:
+  label: SE_MOD_LOAD
+  label_dict:
+    array_index: "2"
+    aux_function_name: USER_REGISTER_S_FUNCTIONS
+    initialization_function_name: CFL_SE_MODULE_LOAD_INIT
+    links: []
+    ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_MOD_LOAD._0
+    main_function_name: CFL_SE_MODULE_LOAD_MAIN
+    parent_ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_SE_MODULE_LOAD_TERM
+  node_dict:
+    module_name: state_machine_test
+  node_name: _0
+kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_TICK._2:
+  label: SE_TICK
+  label_dict:
+    array_index: "4"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_SE_TICK_INIT
+    links: []
+    ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_TICK._2
+    main_function_name: CFL_SE_TICK_MAIN
+    parent_ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_SE_TICK_TERM
+  node_dict:
+    tree_bb_field: se_tree_ptr
+  node_name: _2
+kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._1:
+  label: SE_TREE_LOAD
+  label_dict:
+    array_index: "3"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_SE_TREE_LOAD_INIT
+    links: []
+    ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._1
+    main_function_name: CFL_SE_TREE_LOAD_MAIN
+    parent_ltree_name: kb.se_basic_load_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_SE_TREE_LOAD_TERM
+  node_dict:
+    bb_field_name: se_tree_ptr
+    module_name: state_machine_test
+    tree_name: state_machine_test
+  node_name: _1
+kb.se_basic_load_test_functions.kb.se_basic_load_test:
+  label: kb
+  label_dict:
+    array_index: "27"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links:
+      - kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions
+    ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_basic_load_test_functions
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: se_basic_load_test
+kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "28"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links:
+      - kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+      - kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions
+      - kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions
+      - kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+    ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: virtual_functions
+kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "31"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_NULL: true
+    CFL_GATE_NODE_NULL: true
+    CFL_NULL: true
+    USER_REGISTER_S_FUNCTIONS: true
+  node_name: boolean_functions
+kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.main_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "32"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_MAIN: true
+    CFL_DISABLE: true
+    CFL_GATE_NODE_MAIN: true
+    CFL_SE_MODULE_LOAD_MAIN: true
+    CFL_SE_TICK_MAIN: true
+    CFL_SE_TREE_LOAD_MAIN: true
+    CFL_TERMINATE_SYSTEM: true
+  node_name: main_functions
+kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "30"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_basic_load_test_functions.kb.se_basic_load_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_INIT: true
+    CFL_COLUMN_TERM: true
+    CFL_GATE_NODE_INIT: true
+    CFL_GATE_NODE_TERM: true
+    CFL_LOG_MESSAGE: true
+    CFL_NULL: true
+    CFL_SE_MODULE_LOAD_INIT: true
+    CFL_SE_MODULE_LOAD_TERM: true
+    CFL_SE_TICK_INIT: true
+    CFL_SE_TICK_TERM: true
+    CFL_SE_TREE_LOAD_INIT: true
+    CFL_SE_TREE_LOAD_TERM: true
+  node_name: one_shot_functions
+kb.se_custom_bb_test.GATE_root._0:
+  label: GATE_root
+  label_dict:
+    array_index: "18"
+    aux_function_name: CFL_GATE_NODE_NULL
+    initialization_function_name: CFL_GATE_NODE_INIT
+    links:
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0
+    ltree_name: kb.se_custom_bb_test.GATE_root._0
+    main_function_name: CFL_GATE_NODE_MAIN
+    parent_ltree_name: kb.se_custom_bb_test
+    termination_function_name: CFL_GATE_NODE_TERM
+  node_dict:
+    version: 1.0.0
+  node_name: _0
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0:
+  label: COL_se_c
+  label_dict:
+    array_index: "19"
+    aux_function_name: CFL_COLUMN_NULL
+    initialization_function_name: CFL_COLUMN_INIT
+    links:
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.SE_MOD_LOAD._0
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.SE_TREE_LOAD._1
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0
+    main_function_name: CFL_COLUMN_MAIN
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0
+    termination_function_name: CFL_COLUMN_TERM
+  node_dict:
+    auto_start: true
+  node_name: _0
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2:
+  label: COL_se_c
+  label_dict:
+    array_index: "22"
+    aux_function_name: CFL_COLUMN_NULL
+    initialization_function_name: CFL_COLUMN_INIT
+    links:
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._0
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._1
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._2
+      - kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._3
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2
+    main_function_name: CFL_COLUMN_MAIN
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0
+    termination_function_name: CFL_COLUMN_TERM
+  node_dict:
+    auto_start: true
+  node_name: _2
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._0:
+  label: LEAF
+  label_dict:
+    array_index: "23"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_LOG_MESSAGE
+    links: []
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._0
+    main_function_name: CFL_DISABLE
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2
+    termination_function_name: CFL_NULL
+  node_dict:
+    message: custom blackboard loaded
+  node_name: _0
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._1:
+  label: LEAF
+  label_dict:
+    array_index: "24"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_WAIT_TIME_INIT
+    links: []
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._1
+    main_function_name: CFL_WAIT_TIME
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2
+    termination_function_name: CFL_NULL
+  node_dict:
+    time_delay: "1"
+  node_name: _1
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._2:
+  label: LEAF
+  label_dict:
+    array_index: "25"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_LOG_MESSAGE
+    links: []
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._2
+    main_function_name: CFL_DISABLE
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2
+    termination_function_name: CFL_NULL
+  node_dict:
+    message: s-engine custom bb test complete
+  node_name: _2
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._3:
+  label: LEAF
+  label_dict:
+    array_index: "26"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2.LEAF._3
+    main_function_name: CFL_TERMINATE_SYSTEM
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.COL_se_c._2
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: _3
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.SE_MOD_LOAD._0:
+  label: SE_MOD_LOAD
+  label_dict:
+    array_index: "20"
+    aux_function_name: USER_REGISTER_S_FUNCTIONS
+    initialization_function_name: CFL_SE_MODULE_LOAD_INIT
+    links: []
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.SE_MOD_LOAD._0
+    main_function_name: CFL_SE_MODULE_LOAD_MAIN
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0
+    termination_function_name: CFL_SE_MODULE_LOAD_TERM
+  node_dict:
+    module_name: se_custom_module
+  node_name: _0
+kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.SE_TREE_LOAD._1:
+  label: SE_TREE_LOAD
+  label_dict:
+    array_index: "21"
+    aux_function_name: SE_CUSTOM_BB_LOAD
+    initialization_function_name: CFL_SE_TREE_LOAD_INIT
+    links: []
+    ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0.SE_TREE_LOAD._1
+    main_function_name: CFL_SE_TREE_LOAD_MAIN
+    parent_ltree_name: kb.se_custom_bb_test.GATE_root._0.COL_se_c._0
+    termination_function_name: CFL_SE_TREE_LOAD_TERM
+  node_dict:
+    bb_field_name: se_tree_ptr
+    module_name: se_custom_module
+    tree_name: se_custom_tree
+  node_name: _1
+kb.se_custom_bb_test_functions.kb.se_custom_bb_test:
+  label: kb
+  label_dict:
+    array_index: "39"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links:
+      - kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions
+    ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_custom_bb_test_functions
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: se_custom_bb_test
+kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "40"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links:
+      - kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+      - kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions
+      - kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions
+      - kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+    ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: virtual_functions
+kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "43"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_NULL: true
+    CFL_GATE_NODE_NULL: true
+    CFL_NULL: true
+    SE_CUSTOM_BB_LOAD: true
+    USER_REGISTER_S_FUNCTIONS: true
+  node_name: boolean_functions
+kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.main_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "44"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_MAIN: true
+    CFL_DISABLE: true
+    CFL_GATE_NODE_MAIN: true
+    CFL_SE_MODULE_LOAD_MAIN: true
+    CFL_SE_TREE_LOAD_MAIN: true
+    CFL_TERMINATE_SYSTEM: true
+    CFL_WAIT_TIME: true
+  node_name: main_functions
+kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "42"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_custom_bb_test_functions.kb.se_custom_bb_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_INIT: true
+    CFL_COLUMN_TERM: true
+    CFL_GATE_NODE_INIT: true
+    CFL_GATE_NODE_TERM: true
+    CFL_LOG_MESSAGE: true
+    CFL_NULL: true
+    CFL_SE_MODULE_LOAD_INIT: true
+    CFL_SE_MODULE_LOAD_TERM: true
+    CFL_SE_TREE_LOAD_INIT: true
+    CFL_SE_TREE_LOAD_TERM: true
+    CFL_WAIT_TIME_INIT: true
+  node_name: one_shot_functions
+kb.se_multi_tree_test.GATE_root._0:
+  label: GATE_root
+  label_dict:
+    array_index: "8"
+    aux_function_name: CFL_GATE_NODE_NULL
+    initialization_function_name: CFL_GATE_NODE_INIT
+    links:
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0
+    ltree_name: kb.se_multi_tree_test.GATE_root._0
+    main_function_name: CFL_GATE_NODE_MAIN
+    parent_ltree_name: kb.se_multi_tree_test
+    termination_function_name: CFL_GATE_NODE_TERM
+  node_dict:
+    version: 1.0.0
+  node_name: _0
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0:
+  label: COL_se_m
+  label_dict:
+    array_index: "9"
+    aux_function_name: CFL_COLUMN_NULL
+    initialization_function_name: CFL_COLUMN_INIT
+    links:
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_MOD_LOAD._0
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._1
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._2
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0
+    main_function_name: CFL_COLUMN_MAIN
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0
+    termination_function_name: CFL_COLUMN_TERM
+  node_dict:
+    auto_start: true
+  node_name: _0
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3:
+  label: COL_se_m
+  label_dict:
+    array_index: "13"
+    aux_function_name: CFL_COLUMN_NULL
+    initialization_function_name: CFL_COLUMN_INIT
+    links:
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._0
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._1
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._2
+      - kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._3
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3
+    main_function_name: CFL_COLUMN_MAIN
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_COLUMN_TERM
+  node_dict:
+    auto_start: true
+  node_name: _3
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._0:
+  label: LEAF
+  label_dict:
+    array_index: "14"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_LOG_MESSAGE
+    links: []
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._0
+    main_function_name: CFL_DISABLE
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3
+    termination_function_name: CFL_NULL
+  node_dict:
+    message: two s-engine trees loaded
+  node_name: _0
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._1:
+  label: LEAF
+  label_dict:
+    array_index: "15"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_WAIT_TIME_INIT
+    links: []
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._1
+    main_function_name: CFL_WAIT_TIME
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3
+    termination_function_name: CFL_NULL
+  node_dict:
+    time_delay: "2"
+  node_name: _1
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._2:
+  label: LEAF
+  label_dict:
+    array_index: "16"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_LOG_MESSAGE
+    links: []
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._2
+    main_function_name: CFL_DISABLE
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3
+    termination_function_name: CFL_NULL
+  node_dict:
+    message: s-engine multi-tree test complete
+  node_name: _2
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._3:
+  label: LEAF
+  label_dict:
+    array_index: "17"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3.LEAF._3
+    main_function_name: CFL_TERMINATE_SYSTEM
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.COL_se_m._3
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: _3
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_MOD_LOAD._0:
+  label: SE_MOD_LOAD
+  label_dict:
+    array_index: "10"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_SE_MODULE_LOAD_INIT
+    links: []
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_MOD_LOAD._0
+    main_function_name: CFL_SE_MODULE_LOAD_MAIN
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_SE_MODULE_LOAD_TERM
+  node_dict:
+    module_name: se_multi_module
+  node_name: _0
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._1:
+  label: SE_TREE_LOAD
+  label_dict:
+    array_index: "11"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_SE_TREE_LOAD_INIT
+    links: []
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._1
+    main_function_name: CFL_SE_TREE_LOAD_MAIN
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_SE_TREE_LOAD_TERM
+  node_dict:
+    bb_field_name: se_tree_a_ptr
+    module_name: se_multi_module
+    tree_name: tree_alpha
+  node_name: _1
+kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._2:
+  label: SE_TREE_LOAD
+  label_dict:
+    array_index: "12"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_SE_TREE_LOAD_INIT
+    links: []
+    ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0.SE_TREE_LOAD._2
+    main_function_name: CFL_SE_TREE_LOAD_MAIN
+    parent_ltree_name: kb.se_multi_tree_test.GATE_root._0.COL_se_m._0
+    termination_function_name: CFL_SE_TREE_LOAD_TERM
+  node_dict:
+    bb_field_name: se_tree_b_ptr
+    module_name: se_multi_module
+    tree_name: tree_beta
+  node_name: _2
+kb.se_multi_tree_test_functions.kb.se_multi_tree_test:
+  label: kb
+  label_dict:
+    array_index: "33"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links:
+      - kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions
+    ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_multi_tree_test_functions
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: se_multi_tree_test
+kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "34"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links:
+      - kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+      - kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions
+      - kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions
+      - kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+    ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test
+    termination_function_name: CFL_NULL
+  node_dict: []
+  node_name: virtual_functions
+kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "37"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.boolean_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_NULL: true
+    CFL_GATE_NODE_NULL: true
+    CFL_NULL: true
+  node_name: boolean_functions
+kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.main_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "38"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.main_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_MAIN: true
+    CFL_DISABLE: true
+    CFL_GATE_NODE_MAIN: true
+    CFL_SE_MODULE_LOAD_MAIN: true
+    CFL_SE_TREE_LOAD_MAIN: true
+    CFL_TERMINATE_SYSTEM: true
+    CFL_WAIT_TIME: true
+  node_name: main_functions
+kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions:
+  label: virtual_functions
+  label_dict:
+    array_index: "36"
+    aux_function_name: CFL_NULL
+    initialization_function_name: CFL_NULL
+    links: []
+    ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions.virtual_functions.one_shot_functions
+    main_function_name: CFL_NULL
+    parent_ltree_name: kb.se_multi_tree_test_functions.kb.se_multi_tree_test.virtual_functions.virtual_functions
+    termination_function_name: CFL_NULL
+  node_dict:
+    CFL_COLUMN_INIT: true
+    CFL_COLUMN_TERM: true
+    CFL_GATE_NODE_INIT: true
+    CFL_GATE_NODE_TERM: true
+    CFL_LOG_MESSAGE: true
+    CFL_NULL: true
+    CFL_SE_MODULE_LOAD_INIT: true
+    CFL_SE_MODULE_LOAD_TERM: true
+    CFL_SE_TREE_LOAD_INIT: true
+    CFL_SE_TREE_LOAD_TERM: true
+    CFL_WAIT_TIME_INIT: true
+  node_name: one_shot_functions

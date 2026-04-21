@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Templates for LispSequencer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 4px solid #3498db;
+            padding-left: 10px;
+        }
+        .template-box {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .template-name {
+            font-size: 1.3em;
+            color: #2980b9;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .code-block {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        .usage {
+            background-color: #e8f4f8;
+            padding: 10px;
+            border-left: 4px solid #3498db;
+            margin: 10px 0;
+        }
+        .expands {
+            background-color: #fef9e7;
+            padding: 10px;
+            border-left: 4px solid #f39c12;
+            margin: 10px 0;
+        }
+        .parameter {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .example {
+            background-color: #e8f8f5;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .warning {
+            background-color: #fadbd8;
+            padding: 10px;
+            border-left: 4px solid #e74c3c;
+            margin: 10px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>📋 Workflow Templates for LispSequencer</h1>
+    
+    <div class="warning">
+        <strong>⚠️ Important:</strong> Save the template code below as <code>workflow_templates.mako</code> to use with LispSequencer.
+    </div>
+
+    <h2>📄 Complete Template File</h2>
+    <div class="code-block">&lt;%doc&gt;
+Workflow-specific macros for common patterns in LispSequencer
+&lt;/%doc&gt;
+
+&lt;%def name="retry_block(branch_id, max_retries)"&gt;
+(@CFL_FORK ${branch_id})
+(@SET_RETRY_COUNT ${max_retries})
+(@LOG "Starting retry block ${branch_id} with max retries: ${max_retries}")
+(!CFL_JOIN ${branch_id})
+&lt;/%def&gt;
+
+&lt;%def name="timeout_block(branch_id, timeout_seconds)"&gt;
+(@CFL_FORK ${branch_id})
+(!CFL_WAIT ${timeout_seconds})
+(?TIMEOUT_CHECK ${branch_id})
+(@CFL_TERMINATE ${branch_id})
+&lt;/%def&gt;
+
+&lt;%def name="error_handler(branch_id, error_message)"&gt;
+(@CFL_FORK ${branch_id})
+(@LOG_ERROR "${error_message}")
+(@SEND_NOTIFICATION "error" "${error_message}")
+(!CFL_JOIN ${branch_id})
+&lt;/%def&gt;
+
+&lt;%def name="sequential_steps(*step_names)"&gt;
+% for i, step in enumerate(step_names):
+(@CFL_FORK ${i})
+(@EXECUTE_STEP "${step}")
+(!CFL_JOIN ${i})
+% endfor
+&lt;/%def&gt;</div>
+
+    <h2>🔧 Template Reference</h2>
+
+    <!-- RETRY BLOCK -->
+    <div class="template-box">
+        <div class="template-name">1. retry_block</div>
+        <p>Creates a retry pattern with configurable retry count.</p>
+        
+        <table>
+            <tr>
+                <th>Parameter</th>
+                <th>Type</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td class="parameter">branch_id</td>
+                <td>integer</td>
+                <td>Branch identifier</td>
+            </tr>
+            <tr>
+                <td class="parameter">max_retries</td>
+                <td>integer</td>
+                <td>Maximum number of retry attempts</td>
+            </tr>
+        </table>
+
+        <div class="usage">
+            <strong>Usage:</strong><br>
+            <code>&lt;%retry_block(0, 3)%&gt;</code>
+        </div>
+
+        <div class="expands">
+            <strong>Expands to:</strong><br>
+            <code>
+            (@CFL_FORK 0)<br>
+            (@SET_RETRY_COUNT 3)<br>
+            (@LOG "Starting retry block 0 with max retries: 3")<br>
+            (!CFL_JOIN 0)
+            </code>
+        </div>
+    </div>
+
+    <!-- TIMEOUT BLOCK -->
+    <div class="template-box">
+        <div class="template-name">2. timeout_block</div>
+        <p>Creates a timeout check pattern.</p>
+        
+        <table>
+            <tr>
+                <th>Parameter</th>
+                <th>Type</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td class="parameter">branch_id</td>
+                <td>integer</td>
+                <td>Branch identifier</td>
+            </tr>
+            <tr>
+                <td class="parameter">timeout_seconds</td>
+                <td>integer</td>
+                <td>Timeout duration in seconds</td>
+            </tr>
+        </table>
+
+        <div class="usage">
+            <strong>Usage:</strong><br>
+            <code>&lt;%timeout_block(1, 30)%&gt;</code>
+        </div>
+
+        <div class="expands">
+            <strong>Expands to:</strong><br>
+            <code>
+            (@CFL_FORK 1)<br>
+            (!CFL_WAIT 30)<br>
+            (?TIMEOUT_CHECK 1)<br>
+            (@CFL_TERMINATE 1)
+            </code>
+        </div>
+    </div>
+
+    <!-- ERROR HANDLER -->
+    <div class="template-box">
+        <div class="template-name">3. error_handler</div>
+        <p>Creates an error handling pattern with logging and notification.</p>
+        
+        <table>
+            <tr>
+                <th>Parameter</th>
+                <th>Type</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td class="parameter">branch_id</td>
+                <td>integer</td>
+                <td>Branch identifier</td>
+            </tr>
+            <tr>
+                <td class="parameter">error_message</td>
+                <td>string</td>
+                <td>Error message to log and notify</td>
+            </tr>
+        </table>
+
+        <div class="usage">
+            <strong>Usage:</strong><br>
+            <code>&lt;%error_handler(2, "Database connection failed")%&gt;</code>
+        </div>
+
+        <div class="expands">
+            <strong>Expands to:</strong><br>
+            <code>
+            (@CFL_FORK 2)<br>
+            (@LOG_ERROR "Database connection failed")<br>
+            (@SEND_NOTIFICATION "error" "Database connection failed")<br>
+            (!CFL_JOIN 2)
+            </code>
+        </div>
+    </div>
+
+    <!-- SEQUENTIAL STEPS -->
+    <div class="template-box">
+        <div class="template-name">4. sequential_steps</div>
+        <p>Processes multiple steps sequentially with fork/join for each.</p>
+        
+        <table>
+            <tr>
+                <th>Parameter</th>
+                <th>Type</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td class="parameter">*step_names</td>
+                <td>strings</td>
+                <td>Variable number of step names</td>
+            </tr>
+        </table>
+
+        <div class="usage">
+            <strong>Usage:</strong><br>
+            <code>&lt;%sequential_steps("validate", "transform", "load")%&gt;</code>
+        </div>
+
+        <div class="expands">
+            <strong>Expands to:</strong><br>
+            <code>
+            (@CFL_FORK 0)<br>
+            (@EXECUTE_STEP "validate")<br>
+            (!CFL_JOIN 0)<br>
+            (@CFL_FORK 1)<br>
+            (@EXECUTE_STEP "transform")<br>
+            (!CFL_JOIN 1)<br>
+            (@CFL_FORK 2)<br>
+            (@EXECUTE_STEP "load")<br>
+            (!CFL_JOIN 2)
+            </code>
+        </div>
+    </div>
+
+    <h2>💡 Complete Example</h2>
+    <div class="example">
+        <h3>Python Code:</h3>
+        <div class="code-block">from lisp_sequencer import LispSequencer
+
+# Initialize with workflow templates
+sequencer = LispSequencer(
+    handle={"session": "abc123"},
+    run_function=my_executor,
+    user_macro_file='workflow_templates.mako'
+)
+
+# Use the templates
+instruction = """
+(pipeline
+    (@CFL_KILL_CHILDREN)
+    
+    &lt;%retry_block(0, 5)%&gt;
+    
+    &lt;%timeout_block(1, 60)%&gt;
+    
+    &lt;%sequential_steps("extract", "process", "save")%&gt;
+    
+    &lt;%error_handler(99, "Workflow failed")%&gt;
+    
+    'CFL_FUNCTION_TERMINATE)
+"""
+
+result = sequencer.run(instruction)</div>
+    </div>
+
+    <h2>📚 Loading Templates</h2>
+    <div class="template-box">
+        <h3>Method 1: At Initialization</h3>
+        <div class="code-block">sequencer = LispSequencer(
+    handle=handle,
+    run_function=func,
+    user_macro_file='workflow_templates.mako'
+)</div>
+
+        <h3>Method 2: After Initialization</h3>
+        <div class="code-block">sequencer.set_user_macros_from_file('workflow_templates.mako')</div>
+
+        <h3>Method 3: Temporarily for One Call</h3>
+        <div class="code-block">sequencer.run(instruction, additional_macro_files='workflow_templates.mako')</div>
+
+        <h3>Method 4: From String</h3>
+        <div class="code-block">template_string = """
+&lt;%def name="my_macro(param)">
+(@SOME_FUNCTION "${param}")
+&lt;/%def>
+"""
+sequencer.set_user_macros_from_string(template_string)</div>
+    </div>
+
+    <h2>✍️ Creating Your Own Templates</h2>
+    <div class="template-box">
+        <h3>Basic Template:</h3>
+        <div class="code-block">&lt;%def name="your_macro_name(param1, param2)"&gt;
+(@YOUR_FUNCTION "${param1}")
+(@ANOTHER_FUNCTION ${param2})
+&lt;/%def&gt;</div>
+
+        <h3>With Loops:</h3>
+        <div class="code-block">&lt;%def name="batch_process(*items)"&gt;
+% for i, item in enumerate(items):
+(@PROCESS ${i} "${item}")
+% endfor
+&lt;/%def&gt;</div>
+
+        <h3>With Conditionals:</h3>
+        <div class="code-block">&lt;%def name="conditional_step(condition, action)"&gt;
+% if condition:
+(@EXECUTE "${action}")
+% else:
+(@SKIP "${action}")
+% endif
+&lt;/%def&gt;</div>
+    </div>
+
+    <footer style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #3498db; text-align: center; color: #7f8c8d;">
+        <p>LispSequencer Workflow Templates | For complete documentation, see README.md</p>
+    </footer>
+</body>
+</html>

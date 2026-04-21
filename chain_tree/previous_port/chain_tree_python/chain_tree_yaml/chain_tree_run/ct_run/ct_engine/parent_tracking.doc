@@ -1,0 +1,214 @@
+
+walker = CT_Tree_Walker(nodes, track_parents, get_links)
+walker.walk('A')
+
+# Now parent_map contains child->parent mappings
+Method 2: Build Parent Map Before Traversal
+pythondef build_parent_map(nodes_dict, get_links_func):
+    parent_map = {}
+    
+    for node_id, node in nodes_dict.items():
+        links = get_links_func(node)
+        for child_id in links:
+            parent_map[child_id] = node_id
+    
+    return parent_map
+
+# Build once
+parent_map = build_parent_map(nodes, get_links)
+
+# Then use in your apply function
+def process_with_parent(node, level):
+    node_id = ...  # however you identify nodes
+    parent_id = parent_map.get(node_id)
+    
+    if parent_id:
+        parent_node = nodes[parent_id]
+        print(f"Node {node_id} has parent {parent_id}")
+    else:
+        print(f"Node {node_id} is root (no parent)")
+    
+    return True
+Method 3: Track Path During Traversal
+python# Track the entire path from root to current node
+traversal_path = []
+
+def track_path(node, level):
+    node_id = ...  # your node identifier
+    
+    # Adjust path to current level
+    while len(traversal_path) > level:
+        traversal_path.pop()
+    
+    # Current path represents ancestors
+    if traversal_path:
+        parent_id = traversal_path[-1]
+        print(f"Node {node_id} parent: {parent_id}")
+        print(f"Full path: {' -> '.join(traversal_path)} -> {node_id}")
+    
+    # Add current node for its children
+    traversal_path.append(node_id)
+    
+    return True
+
+walker = CT_Tree_Walker(nodes, track_path, get_links)
+walker.walk('A', method='recursive')  # Works best with DFS
+Method 4: Using Closure to Track Parent
+pythondef create_parent_aware_processor():
+    parent_stack = []
+    
+    def process(node, level):
+        node_id = ...  # your node identifier
+        
+        # Maintain parent stack based on level
+        while len(parent_stack) > level:
+            parent_stack.pop()
+        
+        parent = parent_stack[-1] if parent_stack else None
+        
+        # Process with parent information
+        if parent:
+            print(f"Processing {node_id} with parent {parent}")
+        else:
+            print(f"Processing root {node_id}")
+        
+        # Push current node as parent for next level
+        parent_stack.append(node_id)
+        
+        return True
+    
+    return process
+
+walker = CT_Tree_Walker(nodes, create_parent_aware_processor(), get_links)
+walker.walk('A', method='recursive')
+Method 5: Wrapper Class for Parent Tracking
+pythonclass ParentTracker:
+    def __init__(self, nodes, get_links):
+        self.nodes = nodes
+        self.get_links = get_links
+        self.parent_map = {}
+        self.current_path = []
+        
+    def process_with_parent(self, node, level):
+        # Identify node (adjust based on your structure)
+        node_id = None
+        for nid, n in self.nodes.items():
+            if n is node:
+                node_id = nid
+                break
+        
+        # Maintain path
+        while len(self.current_path) > level:
+            self.current_path.pop()
+        
+        # Record parent
+        if self.current_path:
+            self.parent_map[node_id] = self.current_path[-1]
+            print(f"Node {node_id} has parent {self.current_path[-1]}")
+        
+        self.current_path.append(node_id)
+        
+        # Your actual processing here
+        return True
+    
+    def get_parent(self, node_id):
+        return self.parent_map.get(node_id)
+
+# Usage
+tracker = ParentTracker(nodes, get_links)
+walker = CT_Tree_Walker(nodes, tracker.process_with_parent, get_links)
+walker.walk('A')
+
+# Now you can query parents
+parent = tracker.get_parent('D')  # Returns 'B'
+Method 6: Pre-process to Find All Parents
+pythondef find_all_parents(nodes_dict, get_links_func):
+    """Find all parent relationships in one pass"""
+    parent_map = {}
+    
+    # For each potential parent
+    for parent_id, parent_node in nodes_dict.items():
+        children = get_links_func(parent_node)
+        
+        # Record parent for each child
+        for child_id in children:
+            if child_id not in parent_map:
+                parent_map[child_id] = []
+            parent_map[child_id].append(parent_id)
+    
+    return parent_map
+
+# Get all parents (handles multiple parents in graphs)
+all_parents = find_all_parents(nodes, get_links)
+
+# Use in processing
+def process_with_all_parents(node, level):
+    node_id = ...  # your node identifier
+    parents = all_parents.get(node_id, [])
+    
+    if parents:
+        print(f"Node {node_id} has parent(s): {parents}")
+    else:
+        print(f"Node {node_id} is a root")
+    
+    return True
+Complete Example
+python# Example with full parent tracking
+nodes = {
+    'A': {'value': 1, 'links': ['B', 'C']},
+    'B': {'value': 2, 'links': ['D', 'E']},
+    'C': {'value': 3, 'links': ['F']},
+    'D': {'value': 4, 'links': []},
+    'E': {'value': 5, 'links': []},
+    'F': {'value': 6, 'links': []}
+}
+
+def get_links(node):
+    return node.get('links', [])
+
+# Build parent map first
+parent_map = {}
+for node_id, node in nodes.items():
+    for child_id in get_links(node):
+        parent_map[child_id] = node_id
+
+# Create node ID lookup
+node_to_id = {id(node): node_id for node_id, node in nodes.items()}
+
+# Process with parent information
+def process_with_lineage(node, level):
+    node_id = node_to_id.get(id(node))
+    parent_id = parent_map.get(node_id)
+    
+    indent = "  " * level
+    if parent_id:
+        print(f"{indent}Node {node_id} (parent: {parent_id})")
+    else:
+        print(f"{indent}Node {node_id} (root)")
+    
+    return True
+
+walker = CT_Tree_Walker(nodes, process_with_lineage, get_links)
+walker.walk('A', method='recursive')
+Key Points
+
+No Code Changes Required: All these methods work with the existing CT_Tree_Walker class
+Choose Based on Needs:
+
+One-time parent lookup: Pre-build parent map
+Dynamic parent tracking: Use closure or path tracking
+Multiple parents (graphs): Use list-based parent map
+Memory efficient: Track only during traversal
+
+
+Performance Considerations:
+
+Pre-building is O(n) time, O(n) space
+Dynamic tracking adds minimal overhead
+Choose based on graph size and access patterns
+
+
+
+The existing class is flexible enough to support parent tracking without modifications - just use the appropriate pattern in your apply function!
+
+

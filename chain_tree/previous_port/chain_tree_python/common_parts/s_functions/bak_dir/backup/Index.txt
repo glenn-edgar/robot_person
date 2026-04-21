@@ -1,0 +1,216 @@
+LISPSEQUENCER - FILE INDEX
+==========================
+
+This package contains all files needed to use the LispSequencer class with Mako template preprocessing.
+
+
+📁 MAIN FILES
+=============
+
+1. lisp_sequencer.py
+   - The complete LispSequencer class implementation
+   - Ready to import and use
+   - Size: ~28KB
+   
+2. README.md
+   - Complete documentation with examples
+   - Installation and usage guide
+   - API reference
+   - Size: ~12KB
+
+
+📚 DOCUMENTATION FILES
+======================
+
+3. QUICK_REFERENCE.md
+   - Quick reference guide
+   - Common patterns and examples
+   - Cheat sheet format
+   - Size: ~7KB
+
+
+🔧 TEMPLATE FILES
+=================
+
+4. workflow_templates.mako
+   - ACTUAL TEMPLATE FILE - Use this one!
+   - Contains 4 pre-built workflow templates
+   - Ready to load into LispSequencer
+   - Size: ~800 bytes
+   
+5. workflow_templates.html
+   - HTML VIEWER VERSION for browser viewing
+   - Open in browser to see formatted templates
+   - Includes detailed explanations and examples
+   - Size: ~10KB
+   
+6. workflow_templates_explained.txt
+   - PLAIN TEXT VERSION with full explanations
+   - Safe to view in any text editor
+   - Contains all template details
+   - Size: ~3KB
+   
+7. workflow_templates_raw.txt
+   - RAW COPY-PASTE VERSION
+   - Just the template code, ready to copy
+   - No formatting, pure content
+   - Size: ~800 bytes
+
+
+💻 EXAMPLE FILES
+================
+
+8. usage_examples.py
+   - 9 comprehensive usage examples
+   - Demonstrates all features
+   - Runnable Python code
+   - Size: ~11KB
+
+
+HOW TO VIEW THE TEMPLATES
+==========================
+
+If you're having trouble viewing workflow_templates.mako:
+
+OPTION 1 - Use the HTML viewer:
+   └─ Open "workflow_templates.html" in your web browser
+   └─ Nicely formatted with color coding
+
+OPTION 2 - Use the text explanation:
+   └─ Open "workflow_templates_explained.txt" in any text editor
+   └─ Contains all templates with detailed explanations
+
+OPTION 3 - Use the raw version:
+   └─ Open "workflow_templates_raw.txt"
+   └─ Pure template code ready to copy-paste
+
+OPTION 4 - View as plain text:
+   └─ Open "workflow_templates.mako" in Notepad/TextEdit
+   └─ Some editors might not display angle brackets properly
+
+
+TEMPLATE CONTENTS SUMMARY
+==========================
+
+The workflow_templates.mako file contains:
+
+1. retry_block(branch_id, max_retries)
+   └─ Implements retry logic with configurable attempts
+   
+2. timeout_block(branch_id, timeout_seconds)
+   └─ Implements timeout checking
+   
+3. error_handler(branch_id, error_message)
+   └─ Handles errors with logging and notifications
+   
+4. sequential_steps(*step_names)
+   └─ Executes multiple steps in sequence
+
+
+QUICK START GUIDE
+=================
+
+1. Import the class:
+   from lisp_sequencer import LispSequencer
+
+2. Create your executor function:
+   def my_run(handle, ast):
+       # Your code here
+       return result
+
+3. Initialize:
+   sequencer = LispSequencer(
+       handle={"id": 123},
+       run_function=my_run,
+       user_macro_file='workflow_templates.mako'
+   )
+
+4. Execute with templates:
+   instruction = """
+   (pipeline
+       <%retry_block(0, 3)%>
+       (@DO_WORK)
+       'CFL_FUNCTION_TERMINATE)
+   """
+   result = sequencer.run(instruction)
+
+
+FILE RELATIONSHIPS
+==================
+
+                    lisp_sequencer.py
+                           |
+                           | uses
+                           ↓
+                  workflow_templates.mako
+                           |
+            ┌──────────────┼──────────────┐
+            ↓              ↓              ↓
+  (same content in different formats)
+            |              |              |
+    .html viewer    .txt explained    .txt raw
+
+
+WHERE TO START
+==============
+
+1. Read: QUICK_REFERENCE.md (quick overview)
+2. View: workflow_templates.html (in browser)
+3. Read: README.md (detailed documentation)
+4. Study: usage_examples.py (practical examples)
+5. Use: lisp_sequencer.py + workflow_templates.mako
+
+
+COMMON ISSUES
+=============
+
+Issue: "workflow_templates.mako shows blank or weird characters"
+Solution: The file uses <% %> syntax which browsers interpret as HTML
+         → Use workflow_templates.html instead for viewing
+         → Or use workflow_templates_explained.txt
+
+Issue: "Can't see the template code"
+Solution: Open workflow_templates_raw.txt for plain text version
+
+Issue: "Want to modify templates"
+Solution: Copy content from workflow_templates_raw.txt,
+         edit it, and save as YourName.mako
+
+
+SUPPORT FILES
+=============
+
+All files work together:
+- lisp_sequencer.py = The engine
+- workflow_templates.mako = Pre-built templates
+- usage_examples.py = How to use everything
+- README.md = Complete manual
+- QUICK_REFERENCE.md = Quick lookup
+- *.html = Pretty viewing in browser
+- *_explained.txt = Detailed plain text
+- *_raw.txt = Copy-paste ready
+
+
+WHAT TO DO NOW
+==============
+
+☐ Open workflow_templates.html in your browser
+☐ Read QUICK_REFERENCE.md for overview
+☐ Run usage_examples.py to see it in action
+☐ Copy workflow_templates.mako to your project
+☐ Start using LispSequencer!
+
+
+HELP
+====
+
+If you need help:
+1. Check README.md for detailed documentation
+2. Look at usage_examples.py for working code
+3. Use QUICK_REFERENCE.md as a cheat sheet
+4. View workflow_templates.html for template reference
+
+
+Last Updated: October 23, 2025
+Version: 1.0
+
