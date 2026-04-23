@@ -64,6 +64,8 @@ from se_dsl.primitives import (  # noqa: E402
     return_function_reset, return_function_disable, return_function_skip_continue,
     return_pipeline_continue, return_pipeline_halt, return_pipeline_terminate,
     return_pipeline_reset, return_pipeline_disable, return_pipeline_skip_continue,
+    # Time window
+    time_window_check,
     # Nested
     call_tree,
 )
@@ -100,6 +102,8 @@ __all__ = [
     "return_function_reset", "return_function_disable", "return_function_skip_continue",
     "return_pipeline_continue", "return_pipeline_halt", "return_pipeline_terminate",
     "return_pipeline_reset", "return_pipeline_disable", "return_pipeline_skip_continue",
+    # Time window
+    "time_window_check",
     # Nested
     "call_tree",
     # Macros

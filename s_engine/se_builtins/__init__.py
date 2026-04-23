@@ -20,6 +20,7 @@ from se_builtins import (
     oneshot,
     pred,
     return_codes,
+    time_window,
     verify,
 )
 
@@ -59,6 +60,8 @@ _RETURN_CODES = (
 
 _NESTED = ("se_call_tree",)
 
+_TIME_WINDOW = ("se_time_window_check",)
+
 
 def _collect() -> Dict[str, Callable]:
     registry: Dict[str, Callable] = {}
@@ -71,6 +74,7 @@ def _collect() -> Dict[str, Callable]:
         (oneshot, _ONESHOT),
         (return_codes, _RETURN_CODES),
         (nested_call, _NESTED),
+        (time_window, _TIME_WINDOW),
     ):
         for name in names:
             obj = getattr(mod, name, None)
@@ -85,5 +89,5 @@ BUILTIN_REGISTRY: Dict[str, Callable] = _collect()
 __all__ = [
     "BUILTIN_REGISTRY",
     "flow_control", "dispatch", "pred", "delays",
-    "verify", "oneshot", "return_codes", "nested_call",
+    "verify", "oneshot", "return_codes", "nested_call", "time_window",
 ]

@@ -21,6 +21,7 @@ from se_builtins import nested_call as _N
 from se_builtins import oneshot as _O
 from se_builtins import pred as _P
 from se_builtins import return_codes as _R
+from se_builtins import time_window as _TW
 from se_builtins import verify as _V
 from se_dsl import make_node
 
@@ -407,6 +408,37 @@ return_pipeline_terminate = _rc(_R.return_pipeline_terminate)
 return_pipeline_reset = _rc(_R.return_pipeline_reset)
 return_pipeline_disable = _rc(_R.return_pipeline_disable)
 return_pipeline_skip_continue = _rc(_R.return_pipeline_skip_continue)
+
+
+# ---------------------------------------------------------------------------
+# Time window
+# ---------------------------------------------------------------------------
+
+def time_window_check(
+    key: str,
+    start: Mapping[str, int],
+    end: Mapping[str, int],
+) -> dict:
+    """Write bool to dict[key] each tick: is current LOCAL time inside the window?
+
+    Time is taken from `module.get_wall_time()` (Linux 64-bit epoch seconds)
+    and converted to local time via `module.timezone` (None = system local).
+
+    Time-of-day span — hour, minute, sec compose into seconds-of-day:
+        - missing from `start` defaults to 0
+        - missing from `end`   defaults to the unit's max (23/59/59)
+        - end < start wraps past midnight
+
+    Day filters — dow (0=Mon..6=Sun) and dom (1..31) are AND'd with the span:
+        - must appear in BOTH start and end (or neither = wildcard)
+        - form their own wrap-aware closed range
+
+    Always returns SE_PIPELINE_CONTINUE (always active).
+    """
+    return make_node(
+        _TW.se_time_window_check, "m_call",
+        params={"key": key, "start": dict(start), "end": dict(end)},
+    )
 
 
 # ---------------------------------------------------------------------------

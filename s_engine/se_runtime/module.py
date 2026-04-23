@@ -6,6 +6,8 @@ A module is the unit of deployment. It holds:
   - trees:      dict[str, tree_root_node]
   - fn_registry: name -> callable, for deserialized trees
   - get_time:   callable returning monotonic ns
+  - get_wall_time: callable returning Linux 64-bit epoch seconds (wall clock)
+  - timezone:   tzinfo for local-time conversions (None = system local)
   - crash_callback: optional display/logging hook
   - logger:     callable for oneshot logging (defaults to print)
 """
@@ -13,6 +15,7 @@ A module is the unit of deployment. It holds:
 from __future__ import annotations
 
 import time
+from datetime import tzinfo
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, MutableMapping, Optional
 
@@ -21,12 +24,18 @@ def _default_get_time() -> int:
     return time.monotonic_ns()
 
 
+def _default_get_wall_time() -> int:
+    return int(time.time())
+
+
 def new_module(
     dictionary: Optional[MutableMapping[str, Any]] = None,
     constants: Optional[Mapping[str, Any]] = None,
     trees: Optional[MutableMapping[str, dict]] = None,
     fn_registry: Optional[Mapping[str, Callable]] = None,
     get_time: Optional[Callable[[], int]] = None,
+    get_wall_time: Optional[Callable[[], int]] = None,
+    timezone: Optional[tzinfo] = None,
     crash_callback: Optional[Callable] = None,
     logger: Optional[Callable[[str], None]] = None,
     event_queue_limit: Optional[int] = None,
@@ -41,6 +50,8 @@ def new_module(
         "trees": dict(trees) if trees else {},
         "fn_registry": dict(fn_registry) if fn_registry else {},
         "get_time": get_time or _default_get_time,
+        "get_wall_time": get_wall_time or _default_get_wall_time,
+        "timezone": timezone,
         "crash_callback": crash_callback,
         "logger": logger or print,
         "event_queue_limit": event_queue_limit,
@@ -69,6 +80,8 @@ def load_module(module_dict: Mapping[str, Any]) -> dict:
         "trees": trees,
         "fn_registry": dict(module_dict.get("fn_registry") or {}),
         "get_time": module_dict.get("get_time") or _default_get_time,
+        "get_wall_time": module_dict.get("get_wall_time") or _default_get_wall_time,
+        "timezone": module_dict.get("timezone"),
         "crash_callback": module_dict.get("crash_callback"),
         "logger": module_dict.get("logger") or print,
         "event_queue_limit": module_dict.get("event_queue_limit"),
