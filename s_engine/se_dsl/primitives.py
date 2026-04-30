@@ -419,19 +419,24 @@ def time_window_check(
     start: Mapping[str, int],
     end: Mapping[str, int],
 ) -> dict:
-    """Write bool to dict[key] each tick: is current LOCAL time inside the window?
+    """Write bool to dict[key] each tick: does current LOCAL time match the window?
 
     Time is taken from `module.get_wall_time()` (Linux 64-bit epoch seconds)
     and converted to local time via `module.timezone` (None = system local).
 
-    Time-of-day span — hour, minute, sec compose into seconds-of-day:
-        - missing from `start` defaults to 0
-        - missing from `end`   defaults to the unit's max (23/59/59)
-        - end < start wraps past midnight
+    Window = uniform per-field masks across {hour, minute, sec, dow, dom}.
+    Each field is independent:
+        - both start[f] and end[f] present → field ∈ [start[f], end[f]]
+          inclusive, wrap allowed when end[f] < start[f]
+        - both absent → field unconstrained
+        - exactly one present → ValueError (paired-or-absent rule)
 
-    Day filters — dow (0=Mon..6=Sun) and dom (1..31) are AND'd with the span:
-        - must appear in BOTH start and end (or neither = wildcard)
-        - form their own wrap-aware closed range
+    Final answer = AND of all five per-field checks. Examples:
+        {sec:15}..{sec:15}    — every minute when sec == 15
+        {hour:9}..{hour:17}   — hour ∈ [9..17] inclusive
+        {minute:50}..{minute:10}        — wraps the hour
+        {hour:9,dow:0}..{hour:17,dow:4} — workday daytime
+        {}..{}                — always in
 
     Always returns SE_PIPELINE_CONTINUE (always active).
     """

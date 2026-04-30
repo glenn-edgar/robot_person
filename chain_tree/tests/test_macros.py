@@ -158,3 +158,154 @@ def test_wait_then_act_fires_after_event_count():
     ct.run(starting=["w"])
 
     assert ct.engine["kbs"]["w"]["blackboard"]["acted"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 6. retry_until_success: stops on first marked-pass attempt.
+# ---------------------------------------------------------------------------
+
+def test_retry_until_success_stops_on_first_pass():
+    log: list[str] = []
+    ct = ChainTree(**_engine_kwargs(log))
+
+    attempts = [0]
+
+    def attempt(handle, node):
+        attempts[0] += 1
+        # Side-effect: write the latest attempt number to bb so the
+        # predicate can decide based on it.
+        handle["blackboard"]["last_attempt"] = attempts[0]
+
+    def predicate(handle, node, event_type, event_id, event_data):
+        # Filter the post-mark probe — predicate fires inside a one-shot
+        # so it never sees CFL_TERMINATE_EVENT, but defensive filter is cheap.
+        if event_id == "CFL_TERMINATE_EVENT":
+            return False
+        # Pass on the 3rd attempt and later.
+        return handle["blackboard"].get("last_attempt", 0) >= 3
+
+    ct.add_one_shot("ATTEMPT", attempt)
+    ct.add_boolean("OK_NOW", predicate)
+
+    ct.start_test("retry")
+    seq = macros.retry_until_success(
+        ct,
+        "rty",
+        attempt_one_shot="ATTEMPT",
+        success_predicate_fn="OK_NOW",
+        max_attempts=5,
+    )
+    ct.end_test()
+
+    ct.run(starting=["retry"])
+
+    # Attempts 1 and 2 marked fail; attempt 3 marked pass; sequence
+    # short-circuited (attempts 4 and 5 never ran).
+    assert attempts[0] == 3
+    state = seq["ct_control"]["sequence_state"]
+    assert state["results"][0]["status"] is False
+    assert state["results"][1]["status"] is False
+    assert state["results"][2]["status"] is True
+
+
+def test_retry_until_success_runs_all_attempts_when_predicate_never_passes():
+    log: list[str] = []
+    ct = ChainTree(**_engine_kwargs(log))
+
+    attempts = [0]
+
+    def attempt(handle, node):
+        attempts[0] += 1
+
+    def never(handle, node, event_type, event_id, event_data):
+        return False
+
+    ct.add_one_shot("ATTEMPT", attempt)
+    ct.add_boolean("NEVER", never)
+
+    ct.start_test("noretry")
+    macros.retry_until_success(
+        ct, "rty", "ATTEMPT", "NEVER", max_attempts=4,
+    )
+    ct.end_test()
+
+    ct.run(starting=["noretry"])
+
+    # All 4 attempts ran; sequence_til_pass completes (no pass found).
+    assert attempts[0] == 4
+
+
+# ---------------------------------------------------------------------------
+# 7. state_machine_from_table: builds an SM that walks events through.
+# ---------------------------------------------------------------------------
+
+def test_state_machine_from_table_drives_state_walk():
+    log: list[str] = []
+    ct = ChainTree(**_engine_kwargs(log))
+
+    def step_a(handle, node):
+        log.append("entered A")
+
+    def step_b(handle, node):
+        log.append("entered B")
+
+    def step_done(handle, node):
+        log.append("entered DONE")
+        # Self-terminate so the test ends.
+        handle["engine"]["cfl_engine_flag"] = False
+
+    ct.add_one_shot("STEP_A", step_a)
+    ct.add_one_shot("STEP_B", step_b)
+    ct.add_one_shot("STEP_DONE", step_done)
+
+    ct.start_test("tbl")
+    sm = macros.state_machine_from_table(
+        ct, "fsm",
+        transitions=[
+            ("a", "GO_TO_B", "b", "STEP_B"),
+            ("b", "GO_TO_DONE", "done", "STEP_DONE"),
+        ],
+        initial_state="a",
+    )
+    ct.end_test()
+
+    # Pre-stage events on the queue so the SM transitions immediately
+    # without needing a real event source.
+    from ct_runtime import enqueue
+    from ct_runtime.event_queue import make_event
+    from ct_runtime.codes import CFL_EVENT_TYPE_NULL, PRIORITY_NORMAL
+
+    # We need to enqueue these AFTER activate_kb stamps the SM root, so
+    # use a sleep callback that injects them on the first tick.
+    fired = [False]
+
+    def inject(_dt):
+        if fired[0]:
+            return
+        fired[0] = True
+        enqueue(ct.engine, make_event(
+            target=sm, event_type=CFL_EVENT_TYPE_NULL,
+            event_id="GO_TO_B", data=None, priority=PRIORITY_NORMAL,
+        ))
+        enqueue(ct.engine, make_event(
+            target=sm, event_type=CFL_EVENT_TYPE_NULL,
+            event_id="GO_TO_DONE", data=None, priority=PRIORITY_NORMAL,
+        ))
+
+    ct.engine["sleep"] = inject
+    ct.run(starting=["tbl"])
+
+    assert "entered B" in log
+    assert "entered DONE" in log
+
+
+def test_state_machine_from_table_rejects_initial_not_in_states():
+    import pytest
+    ct = ChainTree(**_engine_kwargs([]))
+    ct.start_test("bad")
+    with pytest.raises(ValueError, match="initial_state"):
+        macros.state_machine_from_table(
+            ct, "fsm",
+            transitions=[("a", "EV", "b", None)],
+            initial_state="z",  # not in any transition
+        )

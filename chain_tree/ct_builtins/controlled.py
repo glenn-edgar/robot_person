@@ -37,11 +37,13 @@ from ct_runtime.codes import (
     CFL_DISABLE,
     CFL_EVENT_TYPE_STREAMING_DATA,
     CFL_HALT,
+    CFL_RESET,
+    CFL_TERMINATE,
     CFL_TIMER_EVENT,
     PRIORITY_HIGH,
 )
 from ct_runtime.event_queue import make_event
-from ct_runtime.registry import lookup_boolean
+from ct_runtime.registry import lookup_boolean, lookup_one_shot
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +131,10 @@ def cfl_controlled_client_init(handle, node) -> None:
     request_data["_client_node"] = node
     if "schema" in request_port:
         request_data.setdefault("_schema", request_port["schema"])
+    # Reset timeout counter every (re-)activation. Pairs with the timeout
+    # kwargs on asm_client_controlled_node — leaving it at zero on a reset
+    # would cause the next timeout window to start mid-count.
+    node["data"]["timeout_count"] = 0
     enqueue(handle["engine"], make_event(
         target=server,
         event_type=_port_event_type(request_port),
@@ -149,7 +155,35 @@ def cfl_controlled_client_main(handle, bool_fn_name, node, event):
                 )
             fn(handle, node, event["event_type"], event["event_id"], event["data"])
         return CFL_DISABLE
-    return CFL_HALT
+
+    # Optional timeout: count occurrences of timeout_event_id (default
+    # CFL_TIMER_EVENT). timeout=0 disables the timeout entirely.
+    timeout = int(node["data"].get("timeout", 0))
+    if timeout <= 0:
+        return CFL_HALT
+
+    timeout_event = node["data"].get("timeout_event_id", CFL_TIMER_EVENT)
+    if event["event_id"] != timeout_event:
+        return CFL_HALT
+
+    node["data"]["timeout_count"] = node["data"].get("timeout_count", 0) + 1
+    if node["data"]["timeout_count"] < timeout:
+        return CFL_HALT
+
+    # Timeout reached. Fire optional error one-shot, then RESET (retry the
+    # parent) or TERMINATE (give up). Mirrors CFL_WAIT_MAIN semantics.
+    err_fn_name = node["data"].get("error_fn", "CFL_NULL")
+    if err_fn_name and err_fn_name != "CFL_NULL":
+        err_fn = lookup_one_shot(handle["engine"]["registry"], err_fn_name)
+        if err_fn is None:
+            raise LookupError(
+                f"controlled_client: error fn {err_fn_name!r} not in registry"
+            )
+        err_fn(handle, node)
+
+    if node["data"].get("reset_flag", False):
+        return CFL_RESET
+    return CFL_TERMINATE
 
 
 def cfl_controlled_client_term(handle, node) -> None:

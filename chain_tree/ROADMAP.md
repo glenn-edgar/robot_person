@@ -7,30 +7,30 @@ For current state and what's already built, see `continue.md`.
 
 ---
 
-## Tier 1 — finish the port
+## Tier 1 — finish the port  ✅ DONE 2026-04-27
 
-Small, self-contained additions. Each is one session or less.
+All five Tier 1 items landed. Test count 67 → 103 (+36).
 
-| Item | Effort | Leverage | Why |
-|---|---|---|---|
-| **Real-world end-to-end test** (`tests/test_kitchen_sink.py`, ~150 lines): one realistic scenario combining ≥6 operators (e.g., supervised state machine with timeout recovery + streaming sensor sink + RPC) | S | high | Flushes out integration bugs the per-feature unit tests can't see; serves as documentation-by-example |
-| **Per-package CLAUDE.md docs** (4 docs, ~80 lines each, for `ct_runtime/`, `ct_builtins/`, `ct_dsl/`, `ct_bridge/`) | S | high | Future AI agents working in the codebase need these; cheap insurance |
-| **Streaming `collect` + `sink_collected`** — multi-port packet accumulator | M | medium | Completes the streaming family; the only operator type still incomplete |
-| **`asm_streaming_verify`** | S | low | Streaming-aware assertion; nice to have |
-| **Controlled-node client timeout** (kwarg on `asm_client_controlled_node`) | S | medium | Removes the "client hangs forever" footgun; can wrap with `timeout_wrap` macro internally |
+| Item | Status | Notes |
+|---|---|---|
+| **Real-world end-to-end test** (`tests/test_kitchen_sink.py`) | ✅ | Supervised state machine + RPC + streaming + time-window gate; 1 test, 11+ operators |
+| **Per-package CLAUDE.md docs** | ✅ | `ct_runtime/`, `ct_builtins/`, `ct_dsl/`, `ct_bridge/` (~85 lines each) |
+| **Streaming `collect` + `sink_collected`** | ✅ | `CFL_STREAMING_COLLECT_PACKET` + `_SINK_COLLECTED` + DSL + 6 tests |
+| **Controlled-node client timeout** | ✅ | `timeout` / `error_fn` / `reset_flag` kwargs on `asm_client_controlled_node`; 3 added tests |
+| **`asm_streaming_verify`** | ✅ | `CFL_STREAMING_VERIFY_PACKET` predicate-on-port assertion + 4 tests |
 
 ---
 
-## Tier 2 — runner and persistence
+## Tier 2 — runner and persistence  ✅ DONE 2026-04-27
 
-Turn chain_tree from "library you import" into "tool you run."
+All four items landed. Test count 103 → 129 (+26).
 
-| Item | Effort | Leverage | Why |
-|---|---|---|---|
-| **One-step runner / CLI** — `python -m chain_tree my_test.py` style: imports the user file, finds its `ChainTree` instance, runs it, exits with status code based on KB completion | M | very high | The original `project_next_tasks` memory item; turns this into a usable test orchestrator |
-| **Tree serialization** — `serialize(chain_tree) → dict` and `deserialize(dict) → chain_tree`, callable references via fn_registry. Mirror s_engine's pattern. | M | medium | Enables snapshot dumping, network transport, debug inspection |
-| **`validate(chain_tree)` helper** — separate from `run()`'s fail-fast resolution; also checks structural invariants (e.g., exception_handler has 3 children, state_machine has all states defined). Surfaces bugs at build time with better error messages. | S | medium | Currently each operator's INIT does its own validation; consolidating gives uniform error messages |
-| **More macros** — `retry_until_success` (sequence_til + verify), `parallel_actions` (true fork — needs a fork node type if not column-aliased), `state_machine_from_table` | S–M | low | Pure convenience |
+| Item | Status | Notes |
+|---|---|---|
+| **One-step runner / CLI** | ✅ | New `ct_runner/` package: `python -m ct_runner my_test.py [--var=name] [--starting=k1,k2]`. Uses importlib.util to load the user file, finds the ChainTree by attribute, calls run(); exit 0 on clean drain / 1 otherwise. 8 tests. |
+| **Tree serialization** | ✅ | `ct_runtime/serialize.py`: `serialize_tree`, `deserialize_tree`, `serialize_chain_tree`, `deserialize_into`. Internal cross-refs (sm_node / server_node / target_node / parent_node) replaced with `{"_node_ref": <id>}` markers; ct_control/parent/_kb stripped + rebuilt. 6 tests. |
+| **`validate(chain_tree)` helper** | ✅ | `ChainTree.validate()` runs unresolved-fn check + structural invariants (exception_handler has 3 children, state_machine declared/defined match, controlled_server has work, sequence_til has marks somewhere) + cross-ref typing (sm_node points to a state_machine, server_node to a controlled_server). `run()` calls it before the loop. 8 tests. |
+| **More macros** | ✅ | `retry_until_success` (uses new `asm_mark_sequence_if` helper), `state_machine_from_table` (build SM from `(from, event, to, action)` tuples). Skipped `parallel_actions` (would need a fork operator that's not yet ported). 4 added tests. |
 
 ---
 
@@ -101,6 +101,17 @@ In rough chronological order, with test count at the milestone:
 | Controlled-node RPC | 57 | client→server→work→response→client cycle; single in-flight per server |
 | Boundary timer events (SECOND/MINUTE/HOUR) | 61 | first-tick-no-baseline correctness |
 | DSL macros (repeat_n / every_n_seconds / timeout_wrap / guarded_action / wait_then_act) | 67 | starting-point examples; meant to be copied/extended |
+| `CFL_TIME_WINDOW_CHECK` + bridge plumbing (engine `get_wall_time`/`timezone` forwarded to s_engine modules) | 89 | 16 unit + 6 integration tests; native + bridged sides agree |
+| Kitchen-sink end-to-end test | 90 | supervised SM + RPC + streaming + time-window gate in one scenario |
+| Streaming `collect` + `sink_collected` (multi-port join) | 96 | latest-wins per-inport; emits combined `{event_id: packet}` on outport |
+| Controlled-node client timeout (`timeout`/`error_fn`/`reset_flag` kwargs) | 99 | mirrors `cfl_wait_main` escalation; removes the "client hangs forever" footgun |
+| `asm_streaming_verify` | 103 | predicate-on-port assertion; non-matching events transparent |
+| Per-package CLAUDE.md docs (`ct_runtime` / `_builtins` / `_dsl` / `_bridge`) | 103 | ~85 lines each; documents conventions, gotchas, public API |
+| One-step CLI runner (`ct_runner/`) | 111 | `python -m ct_runner my_test.py`; importlib.util-based load; 8 tests |
+| Tree (de)serialization (`ct_runtime/serialize.py`) | 117 | `_node_ref` ID encoding for internal cross-refs; round-trips through JSON; 6 tests |
+| `ChainTree.validate()` build-time helper | 125 | unresolved-fn + structural + cross-ref-type checks; `run()` calls it first; 8 tests |
+| Macros: `retry_until_success` + `state_machine_from_table` | 129 | new `asm_mark_sequence_if` helper underpins retry; SM builds from a flat tuple table; 4 tests |
 
-Five subpackages, ~12 test files, ~67 tests, no top-level `__init__.py`,
-all green (also verified s_engine 190/190 still green at each step).
+Six subpackages (added `ct_runner`), ~19 test files, 129 tests, no top-level
+`__init__.py`, all green (also verified s_engine 190/190 still green at
+each step).

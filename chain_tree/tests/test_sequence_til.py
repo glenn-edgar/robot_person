@@ -176,5 +176,9 @@ def test_sequence_til_missing_mark_raises():
     ct.end_sequence_til_pass()
     ct.end_test()
 
-    with pytest.raises(RuntimeError, match="without calling CFL_MARK_SEQUENCE"):
+    # validate() fires before the main loop; with no asm_mark_sequence_*
+    # leaves anywhere in the sequence_til subtree, the structural check
+    # surfaces the bug at build time rather than waiting for the
+    # runtime "child disabled without calling CFL_MARK_SEQUENCE" guard.
+    with pytest.raises(ValueError, match="no asm_mark_sequence"):
         ct.run(starting=["m"])

@@ -22,6 +22,7 @@ that owns a node is found by walking up to the root; the root carries a
 from __future__ import annotations
 
 import time
+from datetime import tzinfo
 from typing import Any, Callable, Iterable, List, Optional
 
 from . import event_queue as eq
@@ -56,6 +57,11 @@ from .walker import walk
 # Engine / KB construction
 # ---------------------------------------------------------------------------
 
+def _default_get_wall_time() -> int:
+    """Linux 64-bit epoch seconds. Matches s_engine's default."""
+    return int(time.time())
+
+
 def new_engine(
     tick_period: float = 0.25,
     registry: Optional[dict] = None,
@@ -63,6 +69,8 @@ def new_engine(
     crash_callback: Optional[Callable[[BaseException, dict], None]] = None,
     get_time: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    get_wall_time: Optional[Callable[[], int]] = None,
+    timezone: Optional[tzinfo] = None,
 ) -> dict:
     """Build a fresh engine handle.
 
@@ -71,6 +79,11 @@ def new_engine(
     logger:      single-arg callable for diagnostic messages.
     crash_callback: called as fn(exc, event) when a user fn raises.
     get_time / sleep: injected for testability.
+    get_wall_time: callable returning Linux 64-bit epoch seconds; used by
+                   wall-clock operators (e.g. CFL_TIME_WINDOW_CHECK) and
+                   forwarded to s_engine modules built via the bridge.
+                   Defaults to int(time.time()).
+    timezone:      tzinfo for local-time conversions. None = system local.
     """
     return {
         "kbs": {},
@@ -84,6 +97,8 @@ def new_engine(
         "crash_callback": crash_callback,
         "get_time": get_time,
         "sleep": sleep,
+        "get_wall_time": get_wall_time or _default_get_wall_time,
+        "timezone": timezone,
         "last_tick_time": 0.0,
     }
 

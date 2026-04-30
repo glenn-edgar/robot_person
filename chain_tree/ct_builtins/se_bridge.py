@@ -48,12 +48,15 @@ def se_module_load_init(handle, node) -> None:
     if data.get("fn_registry"):
         fn_registry.update(data["fn_registry"])
 
+    engine = handle["engine"]
     module = new_module(
         dictionary=handle["blackboard"],
         constants=data.get("constants"),
         trees=trees,
         fn_registry=fn_registry,
-        logger=handle["engine"]["logger"],
+        logger=engine["logger"],
+        get_wall_time=engine.get("get_wall_time"),
+        timezone=engine.get("timezone"),
     )
     # `new_module` defensively copies its `dictionary` arg. Reassign to share
     # the blackboard by reference — that identity-equality is the WHOLE point

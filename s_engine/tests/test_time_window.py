@@ -92,17 +92,27 @@ def test_start_default_begins_at_zero():
     assert mod["dictionary"]["on"] is True
 
 
-def test_start_minute_boundary_excludes_earlier():
-    # start 09:30, current 09:15 → out
+def test_paired_minute_constrains_per_field():
+    # Per-field AND: hour ∈ [9..17] AND minute ∈ [30..30]. 09:15 → out (minute).
     mod = new_module(
         dictionary={},
         get_wall_time=_clock(_epoch(2026, 4, 23, 9, 15)),
         timezone=_UTC,
     )
-    node = _node("on", {"hour": 9, "minute": 30}, {"hour": 17})
+    node = _node("on", {"hour": 9, "minute": 30}, {"hour": 17, "minute": 30})
     inst = new_instance_from_tree(mod, node)
     invoke_any(inst, node, EVENT_TICK, {})
     assert mod["dictionary"]["on"] is False
+
+    # 09:30 — hour and minute both match. In.
+    mod2 = new_module(
+        dictionary={},
+        get_wall_time=_clock(_epoch(2026, 4, 23, 9, 30)),
+        timezone=_UTC,
+    )
+    inst2 = new_instance_from_tree(mod2, node)
+    invoke_any(inst2, node, EVENT_TICK, {})
+    assert mod2["dictionary"]["on"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +303,127 @@ def test_half_specified_dow_raises():
     inst = new_instance_from_tree(mod, node)
     with pytest.raises(ValueError, match="dow"):
         invoke_any(inst, node, EVENT_TICK, {})
+
+
+def test_half_specified_minute_raises():
+    mod = new_module(
+        dictionary={},
+        get_wall_time=_clock(_epoch(2026, 4, 23, 12, 0)),
+        timezone=_UTC,
+    )
+    node = _node("on", {"hour": 9, "minute": 30}, {"hour": 17})  # minute only in start
+    inst = new_instance_from_tree(mod, node)
+    with pytest.raises(ValueError, match="minute"):
+        invoke_any(inst, node, EVENT_TICK, {})
+
+
+def test_half_specified_sec_raises():
+    mod = new_module(
+        dictionary={},
+        get_wall_time=_clock(_epoch(2026, 4, 23, 12, 0)),
+        timezone=_UTC,
+    )
+    node = _node("on", {}, {"sec": 15})  # sec only in end
+    inst = new_instance_from_tree(mod, node)
+    with pytest.raises(ValueError, match="sec"):
+        invoke_any(inst, node, EVENT_TICK, {})
+
+
+def test_half_specified_hour_raises():
+    mod = new_module(
+        dictionary={},
+        get_wall_time=_clock(_epoch(2026, 4, 23, 12, 0)),
+        timezone=_UTC,
+    )
+    node = _node("on", {"hour": 9}, {})  # hour only in start
+    inst = new_instance_from_tree(mod, node)
+    with pytest.raises(ValueError, match="hour"):
+        invoke_any(inst, node, EVENT_TICK, {})
+
+
+# ---------------------------------------------------------------------------
+# Per-field semantics — only specified fields constrain the check
+# ---------------------------------------------------------------------------
+
+def test_per_field_sec_only_fires_at_sec_15():
+    # {sec:15}..{sec:15} — fires whenever wall-clock sec == 15, regardless of
+    # hour/minute/dow/dom. The "every minute when sec=15" use case.
+    node = _node("hit", {"sec": 15}, {"sec": 15})
+
+    for h, m, s, expected in [
+        (0, 0, 15, True),
+        (12, 34, 15, True),
+        (23, 59, 15, True),
+        (0, 0, 14, False),
+        (0, 0, 16, False),
+        (12, 34, 0, False),
+    ]:
+        mod = new_module(
+            dictionary={},
+            get_wall_time=_clock(_epoch(2026, 4, 23, h, m, s)),
+            timezone=_UTC,
+        )
+        inst = new_instance_from_tree(mod, node)
+        invoke_any(inst, node, EVENT_TICK, {})
+        assert mod["dictionary"]["hit"] is expected, (h, m, s)
+
+
+def test_per_field_minute_only():
+    # {minute:30}..{minute:30} — fires at any HH:30:SS.
+    node = _node("hit", {"minute": 30}, {"minute": 30})
+    for h, m, s, expected in [
+        (9, 30, 0, True),
+        (9, 30, 45, True),
+        (17, 30, 0, True),
+        (9, 29, 59, False),
+        (9, 31, 0, False),
+    ]:
+        mod = new_module(
+            dictionary={},
+            get_wall_time=_clock(_epoch(2026, 4, 23, h, m, s)),
+            timezone=_UTC,
+        )
+        inst = new_instance_from_tree(mod, node)
+        invoke_any(inst, node, EVENT_TICK, {})
+        assert mod["dictionary"]["hit"] is expected, (h, m, s)
+
+
+def test_per_field_minute_wrap():
+    # {minute:50}..{minute:10} — wrap-aware per-field: minute ∈ [50..59] ∪ [0..10].
+    node = _node("hit", {"minute": 50}, {"minute": 10})
+    for m, expected in [(50, True), (55, True), (59, True),
+                        (0, True), (10, True),
+                        (11, False), (30, False), (49, False)]:
+        mod = new_module(
+            dictionary={},
+            get_wall_time=_clock(_epoch(2026, 4, 23, 9, m, 0)),
+            timezone=_UTC,
+        )
+        inst = new_instance_from_tree(mod, node)
+        invoke_any(inst, node, EVENT_TICK, {})
+        assert mod["dictionary"]["hit"] is expected, m
+
+
+def test_per_field_hour_minute_AND():
+    # hour ∈ [9..17] AND minute ∈ [30..30].
+    node = _node("hit", {"hour": 9, "minute": 30}, {"hour": 17, "minute": 30})
+    for h, m, expected in [
+        (9, 30, True),
+        (12, 30, True),
+        (17, 30, True),
+        (9, 0, False),       # minute fails
+        (9, 15, False),      # minute fails
+        (18, 30, False),     # hour fails
+        (8, 30, False),      # hour fails
+    ]:
+        mod = new_module(
+            dictionary={},
+            get_wall_time=_clock(_epoch(2026, 4, 23, h, m, 0)),
+            timezone=_UTC,
+        )
+        inst = new_instance_from_tree(mod, node)
+        invoke_any(inst, node, EVENT_TICK, {})
+        assert mod["dictionary"]["hit"] is expected, (h, m)
 
 
 # ---------------------------------------------------------------------------

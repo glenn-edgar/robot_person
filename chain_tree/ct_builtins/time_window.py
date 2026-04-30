@@ -1,9 +1,10 @@
-"""Wall-clock time-window operator.
+"""Wall-clock time-of-day window operator (native CFL).
 
-`se_time_window_check` reads the current wall-clock time (Linux 64-bit
-epoch seconds) via `inst.module["get_wall_time"]()`, converts it to local
-time using `inst.module["timezone"]` (None = system local), and writes a
-boolean to `dictionary[key]` indicating whether the current local time
+Mirrors s_engine's `se_time_window_check` so the same window shape works
+on both sides of the bridge. Reads the wall clock from
+`engine["get_wall_time"]()` (Linux 64-bit epoch seconds), converts to local
+time using `engine["timezone"]` (None = system local), and writes a bool
+to `kb["blackboard"][key]` indicating whether the current local time
 matches the configured window.
 
 Window shape — uniform per-field masks across {hour, minute, sec, dow,
@@ -26,19 +27,18 @@ Examples:
   {minute:50}..{minute:10}          — wraps the hour (50..59 ∪ 0..10)
   {}..{}                            — always in (no constraints)
 
-The node is always active — returns SE_PIPELINE_CONTINUE on every tick
-including INIT and TERMINATE.
+The node is always active — every tick refreshes the bool and returns
+CFL_CONTINUE. Use it as a leaf inside a column with siblings that read
+the flag (e.g. asm_verify against a CFL_BIT_AND boolean).
+
+  node["data"] = {"key": str, "start": dict, "end": dict}
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from se_runtime.codes import (
-    EVENT_INIT,
-    EVENT_TERMINATE,
-    SE_PIPELINE_CONTINUE,
-)
+from ct_runtime.codes import CFL_CONTINUE
 
 
 def _span_contains(current: int, start_v: int, end_v: int) -> bool:
@@ -52,23 +52,21 @@ def _mask_field_ok(current: int, start_v, end_v, field_name: str) -> bool:
         return True
     if start_v is None or end_v is None:
         raise ValueError(
-            f"se_time_window_check: field {field_name!r} must be present in both "
-            f"start and end, or neither"
+            f"CFL_TIME_WINDOW_CHECK: field {field_name!r} must be present in "
+            f"both start and end, or neither"
         )
     return _span_contains(current, start_v, end_v)
 
 
-def se_time_window_check(inst, node, event_id, event_data):
-    if event_id == EVENT_INIT or event_id == EVENT_TERMINATE:
-        return SE_PIPELINE_CONTINUE
+def cfl_time_window_check(handle, _bool_fn_name, node, _event):
+    data = node["data"]
+    key = data["key"]
+    start = data["start"]
+    end = data["end"]
 
-    params = node["params"]
-    key = params["key"]
-    start = params["start"]
-    end = params["end"]
-
-    epoch_seconds = inst["module"]["get_wall_time"]()
-    tz = inst["module"].get("timezone")
+    engine = handle["engine"]
+    epoch_seconds = engine["get_wall_time"]()
+    tz = engine.get("timezone")
     dt = datetime.fromtimestamp(epoch_seconds, tz=tz)
 
     hour_ok   = _mask_field_ok(dt.hour,      start.get("hour"),   end.get("hour"),   "hour")
@@ -77,7 +75,7 @@ def se_time_window_check(inst, node, event_id, event_data):
     dow_ok    = _mask_field_ok(dt.weekday(), start.get("dow"),    end.get("dow"),    "dow")
     dom_ok    = _mask_field_ok(dt.day,       start.get("dom"),    end.get("dom"),    "dom")
 
-    inst["module"]["dictionary"][key] = (
+    handle["blackboard"][key] = (
         hour_ok and minute_ok and sec_ok and dow_ok and dom_ok
     )
-    return SE_PIPELINE_CONTINUE
+    return CFL_CONTINUE

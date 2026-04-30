@@ -1,517 +1,390 @@
-# Template Language — Design Spec
+# Template Language — Design State (2026-04-30)
 
-A **preprocessor** that sits above `../s_engine` and generates `se_dsl`
-dict-trees (the s_engine's existing tree format). The engine never sees
-templates — it runs the fully-expanded tree exactly as if it had been
-hand-authored in `se_dsl`.
+A template system for composing s_engine and chain_tree dict-trees. Templates
+are plain Python functions stored in a SQLite/ltree-backed registry. The
+runtime user never imports the Python files — they interact only with the
+DB via four verbs (`use_template`, `store_template`, `delete_template`,
+`list_template`).
 
-Supersedes the prose direction in `mission.md` and the HTN/railroad
-proposal in `code_design.md` for this repository. Those documents remain
-for historical context.
-
----
-
-## 1. Position in the stack
-
-```
-  design time     │ startup                            │ engine time
-                  │                                    │
-  registry.add(…) │ instance = deep_expand(registry)   │ new_module(...)
-  registry.freeze │ pidgin_exec(script, instance)      │ register_tree(mod,
-                  │ validate(instance)                 │   "main", tree)
-                  │ tree = emit(instance)              │ push_event / tick
-                  │ ──────────────────────────────     │
-                  │       engine boundary              │
-```
-
-Preprocessing is **offline and independent of the engine**. By the time
-`se_runtime` touches anything, only a `se_dsl` dict-tree exists.
-
-The 74 existing `se_dsl` functions (~67 primitives + 7 macros in
-`s_engine/se_dsl/`) are **library code, untouched.** Templates compose
-them. Slot values reach those functions only as arguments to `se_dsl.*`
-calls.
+This file supersedes the prior `continue.md` (v1, restricted-Python pidgin
+proposal). The HTN/railroad doc `code_design.md` and the prose-direction
+doc `mission.md` remain as historical context only.
 
 ---
 
-## 2. Core data structures
+## 0. Nothing is locked in yet
 
-Two top-level dicts. Plain Python. No classes, no metaclasses.
+**Status: exploratory.** The user has explicitly said they have not done
+this kind of system before and the working stance is "feel our way." No
+code has been written for the template language itself (the
+`template_language/` directory contains only design docs). Every
+"decision" recorded below is a tentative resting point from the chat —
+**any of it can change** when the user returns with hand-written
+templates and we see how the design holds up against real authoring.
 
-```python
-registry = {
-    template_name: {
-        slot_name: {
-            "type":          str,       # primitive or registered template name
-            "value":         Any,       # absent key = required slot
-            "choices":       list,      # optional; enumerated legal values
-            "element_type":  str,       # optional; list/dict homogeneity (strict)
-        },
-        ...
-    },
-    ...
-}
+In particular: the four-verb API, the function-as-template shape, the
+SQLite/ltree storage choice, the per-engine label scheme, the chain_tree
+slot-type proposal — none of these are committed. They are the current
+best guesses from a conversation that ended deliberately before
+implementation. Treat §2 below as "where the design discussion landed,"
+not as "what the system is."
 
-commands = {
-    template_name: {
-        "emit":     callable,   # the override hotspot
-        "validate": callable,
-        "describe": callable,
-        "get":      callable,
-        "set":      callable,
-    },
-    ...
-}
-```
-
-### 2.1 Slot shape
-
-Uniform `{type, value, choices?, element_type?}`. Key invariants:
-
-- **Required slot:** `value` key is absent. Presence of `value` means a
-  baked default. (`None` is a legitimate bound value; don't use it as a
-  required sentinel.)
-- **`choices`:** if present, `value` must be a member.
-- **`element_type`:** if present, strict — every element's `type` must
-  equal it. Absence means heterogeneous.
-
-### 2.2 Type alphabet
-
-Closed, system-defined set:
-
-- **Primitives:** `"string"`, `"number"`, `"bool"`, `"list"`, `"dict"`.
-- **Registered template names:** every top-level key of `registry` is
-  also a legal `type`. A slot with `type == "email"` means "an instance
-  of the `email` template; `value` is the bindings dict."
-- **Abstract placeholders** (pidgin-bound at use time):
-  `"template"` (any registered template), `"list"` / `"dict"`
-  without `element_type` (any homogeneous or heterogeneous container).
-
-### 2.3 Uniform namespace addressing
-
-Every slot anywhere in the tree is reachable by dotted path from a
-registry root:
-
-```
-my_agent.watchdog.seconds          # primitive slot
-my_agent.retry.action.0            # nth element of a list slot
-my_agent.sm.states.idle.action     # dict-key into a dict slot, then sub-slot
-```
-
-The rule: to step into a `value`, if it is a dict of slot records, key
-or integer-index into it. Works for sub-template bindings, list
-elements, and dict entries identically.
-
-### 2.4 Container slots
-
-Lists and dicts hold **slot records** recursively:
-
-```python
-{
-    "type": "list",
-    "element_type": "email",   # optional strict constraint
-    "value": [
-        {"type": "email", "value": {...}},
-        {"type": "email", "value": {...}},
-    ],
-}
-
-{
-    "type": "dict",
-    "element_type": "action",
-    "value": {
-        "idle":    {"type": "action", "value": {...}},
-        "running": {"type": "action", "value": {...}},
-    },
-}
-```
+The only thing that is real and committed is the engine-side `time_window`
+change in §3 — that ships actual code with passing tests, independent of
+whatever the template language ultimately becomes.
 
 ---
 
-## 3. DSL helper (design time)
-
-Explicit, pure-ish registration. Matches `se_dsl.make_node` style — no
-hidden module-level state.
-
-```python
-from template_language import Registry, slot
-
-registry = Registry()
-
-registry.add("with_timeout",
-    slot("action",           type="template"),
-    slot("seconds",          type="number", value=30),
-    slot("on_timeout",       type="template"),
-    slot("reset_on_timeout", type="bool", value=False, choices=[True, False]),
-    emit=tier1.with_timeout,
-)
-```
-
-- `registry.add(name, *slots, emit=<fn>, validate=<fn>, describe=<fn>)`
-  registers a template. `slot(name, **kwargs)` returns a
-  `(name, slot_dict)` tuple that `add` collects into a dict.
-- The five reference commands auto-populate on registration. User
-  overrides by passing `emit=`, `validate=`, etc. to `add`, or by
-  writing into `commands[name]` afterward.
-- `emit=<callable>` binding mode: **kwargs by default.** The wrapper
-  calls `emit(**filled_slot_values)`. An escape hatch (proposed:
-  `@full_emit` decorator on the function) passes the whole instance
-  record instead, for templates that need full-tree context.
-
-### 3.1 Profile templates
-
-Profile proliferation is expected and **encouraged**. Two templates
-sharing an emit function but shipping different baked defaults is the
-normal pattern:
-
-```python
-registry.add("retry_aggressive",
-    slot("attempts",   type="number", value=10),
-    slot("base_delay", type="number", value=0.1),
-    slot("action",     type="template"),
-    emit=tier2.retry_with_backoff,
-)
-
-registry.add("retry_careful",
-    slot("attempts",   type="number", value=3),
-    slot("base_delay", type="number", value=5.0),
-    slot("action",     type="template"),
-    emit=tier2.retry_with_backoff,
-)
-```
-
-The value of the system is that **canned profiles pre-fill most slots**,
-so user pidgin is a handful of overrides:
+## 1. Where the system sits
 
 ```
-my_agent.recovery = retry_careful(action=escalate_to_operator())
+  user authoring (Python files, locally tested)
+              │
+              │   store_template(file_or_fn, path=..., kind=..., engines=..., ...)
+              ▼
+   ┌────────────────────────────────────────┐
+   │  SQLite DB with ltree extension        │   .so at /usr/local/lib/ltree.so
+   │  ───────────────────────────────────   │   wrapper: /home/glenn/knowledge_base
+   │  templates(path, name, version,        │            /kb_modules/kb_python
+   │            kind, engines, body_python, │            /sqlite3/ (Construct_KB)
+   │            properties JSON, ...)       │
+   └────────────────────────────────────────┘
+              │
+              │   use_template(path, **overrides) → s_engine or chain_tree dict-tree
+              ▼
+   se_runtime / chain_tree runtime  (unchanged — they consume the dict-tree
+                                     exactly as if hand-authored in se_dsl /
+                                     ct_dsl)
 ```
 
-**No `registry.profile(base=..., overrides=...)` shorthand in v1.**
-Revisit if duplication becomes painful.
+The DB is the **single source of truth and the only registry the runtime
+sees**. Python source files are an authoring artifact, smoke-tested locally,
+then submitted to the DB. The registry is reusable across LuaJIT later — no
+Python decorators, no metaclasses, plain functions plus an explicit
+`register(...)` call.
 
 ---
 
-## 4. Registry freeze
+## 2. Where the design discussion landed (tentative — see §0)
 
-After all `add()` calls, `registry.freeze()`:
+These are *current resting points*, not commitments. Each was discussed
+to a degree of consensus during the session, but the user reserved the
+right to revise any of them once real templates expose problems. Read
+this section as "the most likely shape" rather than "the agreed shape."
 
-1. Walks every slot with `type` ∈ registered template names, confirms
-   the target exists. Unknown references → hard error.
-2. Walks the template dependency graph. Detects cycles. A cycle → hard
-   error (eager expansion requires acyclic graph).
-3. Marks registry immutable. Further `add()` calls raise.
+1. **Storage.** SQLite with the ltree.so extension. Use the existing wrapper
+   `Construct_KB` from `/home/glenn/knowledge_base/kb_modules/kb_python/sqlite3/`.
+   The DB schema is *not yet committed* (see §6 open items).
 
-Freeze is cheap (single pass). The cost of late failure is much higher
-than running freeze every startup.
+2. **Surface syntax.** No new DSL. Templates and template-instantiations
+   look like ordinary `se_dsl` / `ct_dsl` Python code. No Lisp parens. No
+   restricted-Python pidgin via AST parsing (that was the v1 idea and was
+   rejected).
+
+3. **Template body shape (Option C).** A template is a plain Python function
+   whose **parameters are its slots**. Defaults → optional slot. No default
+   → required slot. No `@deftemplate` decorator (LuaJIT portability — Lua
+   has no decorators).
+
+4. **Registration (Option 1A).** Plain function + explicit `register(...)`
+   call:
+   ```python
+   def fire_in_window(start, end, child, key="in_window"):
+       return se_dsl.sequence(...)
+
+   register(
+       path     = "composites.s_engine.fire_in_window",
+       kind     = "composite",
+       engines  = ["s_engine"],
+       body     = fire_in_window,
+       describe = "Run child only when wall-clock matches the window.",
+   )
+   ```
+   Both `register(...)` and the template function are visible at module
+   import time; the loader runs the file and accumulates the registrations.
+
+5. **Authoring file convention.** One template per Python file. The file
+   contains the function, the `register(...)` call, and an
+   `if __name__ == "__main__":` smoke test that exercises the template with
+   real values and prints / runs the result. The runtime user does **not**
+   import these files — they call `store_template(file)` to push the
+   contents into the DB, then use the DB. The smoke test stays in the file
+   for the author; whether it is preserved in the DB row is open (§6).
+
+6. **API surface — four verbs (probable fifth):**
+   - `use_template(path, **overrides)` — resolves an ltree path, runs the
+     stored function with overrides, returns its result (an `se_dsl` /
+     `ct_dsl` dict-tree fragment, or for chain_tree see §5). Composes inside
+     other template bodies and inside solution scripts.
+   - `store_template(...)` — write a template into the DB. Takes either a
+     function object (uses `inspect.getsource`) or a path to a `.py` file.
+   - `delete_template(path)` — remove. Open: cascade behavior when other
+     instances reference it.
+   - `list_template(**predicates)` — query with kwargs like
+     `kind="composite"`, `engine="chain_tree"`, `path_under="composites"`,
+     `name_like="%timeout%"`. Builds the WHERE clause itself, no SQL string.
+   - `describe_template(path)` — likely needed for LLM authoring; returns
+     full slot signature + description for one template.
+
+7. **ltree path = instantiation identity.** Instantiating a template means
+   writing a new row at a new ltree path; that row's properties carry the
+   override deltas and a parent_path pointing at the source template. To
+   "use an instance as a template," reference its ltree path — no separate
+   instance API.
+
+8. **`labels` vs `properties`.**
+   - `labels` are SQL-searchable indexed columns (probably split into typed
+     columns or a side table): `engine_label ∈ {s_engine, chain_tree}`,
+     `kind_label ∈ {composite, leaf}`, plus tags. Used in `WHERE` clauses.
+   - `properties` is one JSON blob carrying the slot schema, defaults,
+     choices, emit refs, override deltas, description, etc. Read whole,
+     parsed in Python, never filtered server-side.
+
+9. **Composites and leaves.** Leaves only attach to composites (composites
+   can have leaf children; leaves cannot have children). Composites can
+   also have composite children. The kind label is what the SQL filter
+   uses to enumerate "things I can start a solution with" (composites only).
+
+10. **Engine asymmetry.** s_engine and chain_tree have non-isomorphic
+    primitives. The same logical template name has **different bodies on
+    each engine**, registered at distinct ltree paths
+    (`composites.s_engine.X` vs `composites.chain_tree.X`), with the
+    `engines` label distinguishing them in queries. No internal
+    `if engine == "..."` branching in template bodies.
+
+11. **Working stance.** Feel-our-way, no premature lock-in. Build the
+    smallest end-to-end demo first; let API choices fall out of "what does
+    this real template need?" Pick the dumb option when in doubt.
+
+12. **LLM authoring is a real constraint.** The four verbs must be small
+    and stable. `list_template` and `describe_template` must return enough
+    structured metadata for an LLM to pick + compose templates without
+    reading source. Errors must be structured ("unknown slot 'foo'; valid
+    slots are [...]") so the LLM can self-correct.
 
 ---
 
-## 5. Instantiation (startup)
+## 3. Engine-side change already landed (real code, committed-ready)
 
-**Eager deep expansion.** Takes a frozen registry + a root template
-name, returns a concrete, filled-in instance tree.
+The wall-clock `time_window` operator was rewritten in **both engines** to
+support per-field semantics (the previous "compose into seconds-of-day"
+shape couldn't express "fire every minute when sec=15"). User signed off,
+all tests passing.
 
-```python
-instance = deep_expand(registry, root="my_agent")
-```
+**New semantics (uniform across `hour, minute, sec, dow, dom`):**
+- Both `start[f]` and `end[f]` present → field constrained to
+  `[start[f], end[f]]` inclusive, wrap-aware (end < start wraps).
+- Both absent → field unconstrained.
+- Exactly one present → ValueError (paired-or-absent rule).
+- Final answer = AND of all five per-field checks.
 
-Rules, applied recursively:
+**Files changed:**
+- `s_engine/se_builtins/time_window.py` — implementation rewritten, helper
+  `_sod_from_parts` removed, all five fields routed through the existing
+  `_mask_field_ok`. Module docstring updated.
+- `chain_tree/ct_builtins/time_window.py` — identical change.
+- `s_engine/se_dsl/primitives.py` — `time_window_check` docstring updated.
+- `chain_tree/ct_dsl/builder.py` — `asm_time_window_check` docstring updated.
+- `s_engine/tests/test_time_window.py` — replaced
+  `test_start_minute_boundary_excludes_earlier`, added
+  `test_paired_minute_constrains_per_field`,
+  `test_half_specified_{minute,sec,hour}_raises`, plus four per-field
+  semantics tests.
+- `chain_tree/tests/test_time_window.py` — parallel additions on the
+  native side.
 
-- Slot `type` is a **registered template name** → replace `value` with
-  a deep copy of that template's slot-dict (baked defaults pulled in).
-  Recurse into the copy.
-- Slot `type` is `"template"` (abstract) → leave alone. Slot is
-  required; pidgin must bind it.
-- Slot `type` is `"list"` or `"dict"` with `element_type` → leave the
-  container empty-but-typed. Pidgin populates.
-- Slot `type` is a primitive → already has `value` (from baked default)
-  or is required.
+**Test status:** s_engine 197/197, chain_tree 136/136.
 
-Post-expansion, every dotted path resolves to a real slot record —
-pidgin needs no "descend into references" logic. Uniform tree walk.
+The user's "every time when sec=15" demo case is now expressible as
+`start={"sec":15}, end={"sec":15}`.
 
 ---
 
-## 6. Pidgin (user / AI config)
+## 4. The three demo templates (the working scope)
 
-Restricted Python subset, parsed via `ast.parse`. Grammar:
+These were chosen as the smallest concrete grist for the design. The user
+is **hand-writing them in the next session**; this file describes their
+intended shapes.
 
-### 6.1 Accepted
+### 4.1 `print_hello` (leaf)
 
-- **Dotted-path assignments**, LHS rooted at a registry namespace:
+- `leaves.s_engine.print_hello` — `def print_hello(): return se_dsl.log("hello")`. No slots.
+- `leaves.chain_tree.print_hello` — equivalent using chain_tree primitives. Shape per §5.
+
+### 4.2 `fire_in_window` (composite, gates a child on a time window)
+
+- `composites.s_engine.fire_in_window`:
+  ```python
+  def fire_in_window(start, end, child, key="in_window"):
+      return se_dsl.sequence(
+          se_dsl.time_window_check(key=key, start=start, end=end),
+          se_dsl.if_then(
+              pred  = se_dsl.dict_eq(key=key, value=True),
+              then_ = child,
+          ),
+      )
   ```
-  my_agent.watchdog.seconds = 30
-  my_agent.retry.action     = [publish_alert(...), publish_alert(...)]
-  ```
-- **Python literals**: numbers, strings, bools, `None`, list `[...]`,
-  dict `{...}`.
-- **Template constructors**: any bare name resolving to a registered
-  template is a callable. `name(slot=val, ...)` returns a slot record
-  `{"type": name, "value": {slot: filled, ...}}`.
-- **Attribute / subscript on LHS** to step into sub-template, list
-  index, or dict key:
-  ```
-  sm.states.idle.action = ...
-  sm.states["idle"].action = ...
-  retry.action.0.severity = "crit"     # granular writes are DEFERRED (see §6.4)
-  ```
+  Slots: `start`, `end` (required, dict), `child` (required, dict-or-template),
+  `key` (optional, default `"in_window"`).
 
-### 6.2 Rejected
+- `composites.chain_tree.fire_in_window` — pending; chain_tree doesn't
+  ship a clean conditional composite, so the body is non-obvious. Probably
+  a column with an aux boolean fn that reads the blackboard flag set by
+  `asm_time_window_check`. Decide when writing.
 
-- `import`, `def`, `class`, `if`, `for`, `while`, `try`, `with` —
-  no control flow, no definitions, no context managers.
-- Free variables that do not resolve to a registered template or a
-  prior assignment.
-- Any LHS not rooted in the registry namespace.
+### 4.3 `am_pm_state_machine` (composite, three-state)
 
-### 6.3 Implementation
+States: `unknown` (initial), `am`, `pm`. The `unknown` state runs once at
+startup, reads the wall clock, dispatches to `am` or `pm`, and is never
+re-entered. AM/PM each watch the wall clock for noon crossings and post
+transitions back the other way.
 
-`ast.parse` → `NodeVisitor`. Whitelisted node types:
-`Module`, `Assign`, `Attribute`, `Subscript`, `Call(func=Name)`,
-`Constant`, `List`, `Dict`, `Name`, `keyword`, `Load`, `Store`.
-Anything else → syntax error.
+Slots: `am_action`, `pm_action`. Both required; both accept a leaf, a
+composite, or another instantiated template.
 
-Template-name callables are synthesized from the frozen registry at
-parse start.
-
-### 6.4 List/dict mutation — v1 limit
-
-**Full-replace only:**
-```
-my_agent.retry.action = [publish_alert(...), publish_alert(...)]
-```
-
-Deferred to v2: `append(...)`, index assignment, dict-key assignment.
-Revisit when ergonomics demand.
-
-### 6.5 Error handling
-
-- **Parse errors** (syntax, unknown template, unresolved name,
-  unresolvable path) → **fail-fast**, stop on first.
-- **Bind errors** (type mismatch on RHS, out-of-choices value,
-  element_type violation) → **collect-all** into the validation error
-  list (§7).
-
-### 6.6 Commands not callable from pidgin
-
-`emit`, `validate`, `describe`, `get`, `set` are programmatic API,
-invoked by the runner. Pidgin binds values. That's all.
+The s_engine and chain_tree bodies look fundamentally different — see §5.
+This is the template that exposed the engine-asymmetry problem most
+clearly.
 
 ---
 
-## 7. Default validate
+## 5. The chain_tree shape problem (open architectural question)
 
-Runs after pidgin completes. Collects all errors before reporting.
+**Discovery from this session:** chain_tree templates cannot have the
+same `(slots) -> dict` shape as s_engine templates. Three reasons, all
+real:
 
-Checks:
+1. **chain_tree is builder-based.** `define_state_machine` /
+   `define_state` / `end_state_machine` push and pop frames on a
+   `ChainTree` instance. There is no "return a state-machine dict
+   fragment" form — the SM is constructed by side effect on the builder.
 
-1. **Required present.** Every slot with `value` key still absent is
-   flagged.
-2. **Type match.** `value` for a primitive slot is the right Python
-   type. `value` for a template-typed slot is a slot record whose
-   `type` equals the declared template name.
-3. **`choices` membership.** If `choices` is set, `value ∈ choices`.
-4. **`element_type` strict.** For list/dict slots with `element_type`,
-   every element's `type` equals `element_type`.
-5. **Template ref resolution.** Any referenced template name exists in
-   the registry (already checked at freeze; re-checked because pidgin
-   may introduce names).
+2. **`asm_change_state(sm, "target")` requires a Python ref to the SM
+   node**, and this ref only exists after the SM has been opened. So
+   any leaf that fires a transition has to be constructed inside the SM's
+   builder context, not in a separately-emitted fragment.
 
-### 7.1 Error format
+3. **No native if-then-else primitive.** `asm_verify` is
+   "if-not-then-terminate-parent." Conditional state changes (the
+   `unknown` state's wall-clock dispatch) require a custom **user-
+   registered main fn** (or one-shot) that reads the clock and posts a
+   `CFL_CHANGE_STATE_EVENT`. The template body has to call
+   `chain.add_main("AM_PM_DECIDE", fn, ...)` itself.
 
+**Therefore chain_tree template bodies are likely shaped:**
 ```python
-@dataclass
-class ValidationError:
-    path:    str        # "my_agent.watchdog.seconds"
-    code:    str        # "required" | "type" | "choices" | "element_type" | "unknown_template"
-    message: str
+def am_pm_state_machine(chain, am_action, pm_action):
+    chain.add_one_shot("AM_PM_DECIDE_INITIAL", _decide_initial)
+    chain.add_main("AM_PM_WATCH",              _watch_for_noon_cross)
+    sm = chain.define_state_machine("am_pm",
+        state_names=["unknown","am","pm"], initial_state="unknown")
+    chain.define_state("unknown")
+    chain.asm_one_shot("AM_PM_DECIDE_INITIAL", data={"sm_node": sm})
+    chain.end_state()
+    chain.define_state("am")
+    am_action(chain, sm)        # slot is a callable, not a dict
+    chain.end_state()
+    chain.define_state("pm")
+    pm_action(chain, sm)
+    chain.end_state()
+    chain.end_state_machine()
+    return sm
 ```
 
-Returned as a list; empty list = success.
+Implications, all unresolved:
 
-### 7.2 Per-template override
+- **First parameter is the `ChainTree` builder**, not a slot. The user
+  doesn't supply it; it's supplied by the surrounding construction
+  context.
+- **Slot type for action slots is `(chain, sm) -> None`** (a callable),
+  not a dict. The user "attaches a leaf" by passing a small function
+  that issues the right builder calls.
+- **`use_template("...chain_tree...")` returns a closure** over (chain,
+  sm), not a dict. Different mental model than s_engine's "use_template
+  returns a tree dict."
+- **Templates may need to register engine-side user fns** as part of
+  body execution. That is more than dict-composition — it pokes the
+  engine's fn registry.
 
-User-provided `validate` runs **after** defaults. It receives the same
-instance view and returns additional errors. It cannot bypass defaults.
+**Decision deferred** to when the user brings their hand-written templates.
+Three plausible directions:
 
----
+A. Accept the asymmetry. Per-template slot type declarations in
+   `properties`. The registry knows "this slot expects a callable, that
+   one expects a dict." `use_template` returns whichever the called
+   template's body returns.
 
-## 8. Emit
+B. Define a thin shim layer on top of chain_tree that exposes a more
+   functional, dict-returning composition (similar to what `ct.make_node`
+   already supports for leaves), so chain_tree templates can adopt the
+   same `(slots) -> dict` shape as s_engine. Costs: probably need a
+   parallel mini-DSL for chain_tree state machines.
 
-Bottom-up walk of the validated instance. Every template's `emit`
-command is called with its filled slot values. The result of each call
-is a `se_dsl` dict (or dict sub-tree). Parents receive their children's
-already-emitted sub-trees as slot arguments.
-
-```python
-tree = emit(instance)
-```
-
-The emitted tree is **byte-for-byte the shape `se_dsl` would produce
-by hand**. No new node types, no wrapper layer.
-
-### 8.1 Emit at scale
-
-Templates may produce arbitrarily large sub-trees. A single `emit` can
-call `se_dsl.*` hundreds of times and return a nested structure
-dozens of levels deep. This is the point of the system — one template
-call replaces a lot of hand-written DSL.
-
-Example:
-
-```python
-def interlock_with_timeout_emit(
-    sensor_id, threshold, action, timeout_sec, fallback,
-):
-    return se_dsl.sequence(
-        se_dsl.wait_event(sensor_id),
-        se_dsl.if_then_else(
-            se_dsl.dict_gt(sensor_id, threshold),
-            se_dsl.with_timeout(
-                action=action,
-                seconds=timeout_sec,
-                on_timeout=fallback,
-            ),
-            fallback,
-        ),
-        se_dsl.log(f"interlock complete on {sensor_id}"),
-    )
-```
-
-### 8.2 Composition
-
-When template A has a slot of type B, emit walks bottom-up: B's emit
-runs first, produces its dict sub-tree, A's emit receives that
-sub-tree as the value of the corresponding slot and splices it into
-A's output. Never string concatenation, always dict composition.
+C. Drop the "same logical template across engines" goal entirely. Treat
+   s_engine and chain_tree as separate registries with no overlap claim;
+   each engine has its own template authoring style.
 
 ---
 
-## 9. What we reuse from s_engine, unmodified
+## 6. Open items (not blocking the next session, but listed)
 
-- **All 74 `se_dsl` functions** — composed inside `emit` bodies.
-- **`se_runtime.serialize_tree` / `deserialize_tree`** — JSON wire
-  format for our emitted trees, unchanged.
-- **`new_module` / `register_tree` / `push_event` / `run_until_idle`** —
-  the runner pattern described in `s_engine/README.md`.
-- **`BUILTIN_REGISTRY`** — precedent for our `commands` dict as a
-  registered, overridable, trust-bounded callable table.
+1. **SQLite schema** — proposed shape exists in chat history but is not
+   committed. Single `templates` table (or two: templates + instances).
+   Columns: `path` (ltree), `name`, `version`, `kind` (composite|leaf),
+   `engines` (or `engine_label` indexed column), `parent_path`,
+   `body_python` (text), `properties` (JSON), `description`,
+   `frozen`, audit columns.
 
----
+2. **chain_tree slot-type asymmetry** (§5) — decide A / B / C.
 
-## 10. Non-goals (v1)
+3. **Granular list/dict writes**, version pinning, override-precedence
+   rules, caching policy, exec sandboxing — all deferred per "feel-our-
+   way" stance until a real template forces the question.
 
-- **No hashing.** This is a Python system end-to-end. FNV-1a and
-  content-addressable storage belong on the embedded/C side (`ctb`,
-  LuaJIT port) and are not part of this preprocessor.
-- **No versioning.** Templates are mutable during authoring, frozen for
-  the run. Revising = re-register. Version discipline, if needed, is
-  an application-level concern.
-- **No runtime escalation protocol.** This is a preprocessor. Runtime
-  behavior is whatever `s_engine` provides.
-- **No NATS / CBOR / CTB.** Those live in s_engine or below it.
-- **No profile shorthand.** Use separate `registry.add(...)` calls.
-- **No granular list/dict pidgin writes.** Full-replace only.
-- **No cross-tier authentication or distributed registry.** Single
-  process, single source of truth.
+4. **Whether `if __name__ == "__main__":` blocks are stored** in the DB
+   `body_python` column or stripped at `store_template` time.
+
+5. **chain_tree `fire_in_window` body** — needs writing; depends on
+   reading `ct_builtins/controlled.py` and figuring out the natural
+   "gate a column on a blackboard bool" idiom.
+
+6. **`initial` state choice on first tick** in the s_engine state machine
+   variant (clock-aware initial vs. one-tick lag). Not relevant to
+   chain_tree because the `unknown` state explicitly handles startup.
 
 ---
 
-## 11. File layout (proposed)
+## 7. The user is writing templates next session
 
-```
-template_language/
-    __init__.py
-    registry.py      # Registry class, slot(), add(), freeze, cycle detection
-    expand.py        # deep_expand
-    pidgin.py        # ast-based parser, pidgin_exec
-    validate.py      # default_validate + error types
-    emit.py          # bottom-up walker, default_emit wrapper
-    commands.py      # reference command set, default_get/set/describe
-    errors.py        # ValidationError, PidginSyntaxError
-    tests/
-        test_registry.py
-        test_expand.py
-        test_pidgin.py
-        test_validate.py
-        test_emit.py
-        test_end_to_end.py   # pidgin script → engine run
-```
+User stated they will hand-write the three demo templates and bring them
+in. The intent is to use the templates as concrete grist — let the API
+shape fall out of "what does this template need to be expressible?"
+rather than designing the API in the abstract.
+
+When the user returns with templates:
+
+1. Read what they wrote — function signature reveals their slot
+   intuitions, body reveals which DSL primitives they reach for, smoke
+   test reveals their preferred call shape.
+2. Match the templates against the (still-tentative) shapes in §4–§5.
+3. Resolve §5's slot-type question if the chain_tree templates are
+   among them. If only s_engine, defer.
+4. From the resolved shapes, draft `register(...)` and the four DB
+   verbs. Don't generalize beyond what the three templates need.
 
 ---
 
-## 12. Acceptance tests
+## 8. Repo pointers
 
-The implementation is complete when:
-
-1. A `registry.add(...)` call registers both `registry[name]` and
-   `commands[name]` with the five reference commands auto-populated.
-2. `freeze()` detects and rejects cycles; passes acyclic graphs.
-3. `deep_expand(registry, root)` returns a tree where every dotted
-   path to a concrete slot resolves.
-4. A pidgin script that sets every required slot leaves the instance
-   fully bound; `validate` returns `[]`.
-5. A pidgin script missing a required slot → `validate` returns a
-   `ValidationError` with `code="required"` and the correct `path`.
-6. Bad `type`, out-of-`choices`, bad `element_type` each return the
-   matching error code with correct path.
-7. `emit(instance)` produces a dict-tree that `se_runtime.new_module`
-   / `register_tree` / `push_event` / `run_until_idle` can execute
-   unchanged.
-8. Two profile templates (e.g. `retry_aggressive`, `retry_careful`)
-   sharing the same `emit` produce distinct dict-trees reflecting
-   their different baked defaults.
-9. A template whose `emit` returns a sub-tree of ≥50 `se_dsl` nodes
-   composes correctly when called as a sub-slot of another template.
-10. Pidgin parse error on the first bad line; subsequent lines
-    unparsed.
-11. JSON round-trip: `emit → serialize_tree → deserialize_tree`
-    produces a dict equal to the original emitted tree.
-
----
-
-## 13. Next steps
-
-1. Build `registry.py` + `slot()` + `add()` + `freeze()` (~200 LOC).
-2. Build `expand.py` (~100 LOC).
-3. Build `pidgin.py` (ast walker, ~300 LOC).
-4. Build `validate.py` + `emit.py` + `commands.py` (~200 LOC combined).
-5. Write 3–5 real templates by hand, composed in a pidgin script,
-   executed on `s_engine`. This is the v1 acceptance demo and the
-   thing that tells us whether the slot types / profile pattern feels
-   right.
-6. If hand-writing templates for `se_dsl` primitives feels burdensome
-   (and only then), build a codegen helper that reads
-   `inspect.signature(se_dsl.<fn>)` and emits a starter
-   `registry.add(...)` block for a human to review.
-
----
-
-## 14. Locked decisions (reference)
-
-Summary of design decisions pinned during the session that produced
-this document:
-
-- Two top-level dicts: `registry`, `commands`.
-- Slot shape: `{type, value?, choices?, element_type?}`. Required =
-  `value` absent.
-- Type alphabet = primitives ∪ registered template names ∪ abstract
-  placeholders (`template`, `list`, `dict`).
-- `element_type` strict when present.
-- Dotted-path addressing uniform across primitives, sub-templates,
-  list indices, dict keys.
-- DSL helper = explicit `Registry.add(...)`; no module-level mutable
-  state.
-- `emit` binding = kwargs by default; full-instance via escape hatch.
-- Eager deep expansion at startup; acyclic template graph required.
-- Pidgin = restricted Python subset via `ast.parse`.
-- List/dict writes in pidgin = full-replace only in v1.
-- Pidgin errors: parse fail-fast; bind errors collect-all.
-- Commands not callable from pidgin.
-- Five reference commands auto-populated; user-overridable.
-- Default validate checks: required, type, choices, element_type,
-  refs. Structured error list.
-- Per-template validate runs after defaults, additive only.
-- No hashing, no versioning, no CTB, no NATS in v1.
-- Profile templates are the primary reuse pattern; no shorthand.
+- Root: `/home/glenn/robot_person/`
+- This package: `/home/glenn/robot_person/template_language/` (no code
+  yet — only `mission.md`, `code_design.md`, this file).
+- `s_engine`: `/home/glenn/robot_person/s_engine/` — Python port complete,
+  197 tests passing.
+- `chain_tree`: `/home/glenn/robot_person/chain_tree/` — Python port
+  complete, 136 tests passing.
+- ltree extension: `/usr/local/lib/ltree.so`.
+- ltree wrapper: `/home/glenn/knowledge_base/kb_modules/kb_python/sqlite3/`.
+- Test invocation: source `/home/glenn/robot_person/enter_venv.sh` (sets
+  PYTHONPATH and activates `.venv/`). Non-interactive: see the
+  `reference_test_invocation` memory.

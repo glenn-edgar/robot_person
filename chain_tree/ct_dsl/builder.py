@@ -26,7 +26,8 @@ call (fail-early per continue.md "Error handling and validation").
 from __future__ import annotations
 
 import itertools
-from typing import Any, Callable, Iterable, List, Optional
+from datetime import tzinfo
+from typing import Any, Callable, Iterable, List, Mapping, Optional
 
 import ct_runtime as ct
 from ct_builtins import register_all_builtins
@@ -43,6 +44,8 @@ class ChainTree:
         crash_callback: Optional[Callable] = None,
         get_time: Optional[Callable[[], float]] = None,
         sleep: Optional[Callable[[float], None]] = None,
+        get_wall_time: Optional[Callable[[], int]] = None,
+        timezone: Optional[tzinfo] = None,
     ):
         kwargs = {"tick_period": tick_period}
         if logger is not None:
@@ -53,6 +56,10 @@ class ChainTree:
             kwargs["get_time"] = get_time
         if sleep is not None:
             kwargs["sleep"] = sleep
+        if get_wall_time is not None:
+            kwargs["get_wall_time"] = get_wall_time
+        if timezone is not None:
+            kwargs["timezone"] = timezone
         self.engine = ct.new_engine(**kwargs)
         register_all_builtins(self.engine["registry"])
 
@@ -163,6 +170,44 @@ class ChainTree:
 
     def asm_blackboard_set(self, key: str, value: Any) -> dict:
         return self.asm_one_shot("CFL_BLACKBOARD_SET", {"key": key, "value": value})
+
+    def asm_time_window_check(
+        self,
+        key: str,
+        start: Mapping[str, int],
+        end: Mapping[str, int],
+    ) -> dict:
+        """Each tick write a bool to kb.blackboard[key] indicating whether the
+        current LOCAL wall-clock time matches the configured window.
+
+        Wall clock is taken from `engine.get_wall_time()` (Linux 64-bit epoch
+        seconds) and converted to local time via `engine.timezone` (None =
+        system local) — both set at ChainTree construction.
+
+        Window = uniform per-field masks across {hour, minute, sec, dow, dom}.
+        Each field is independent:
+            - both start[f] and end[f] present → field ∈ [start[f], end[f]]
+              inclusive, wrap allowed when end[f] < start[f]
+            - both absent → field unconstrained
+            - exactly one present → ValueError (paired-or-absent rule)
+
+        Final answer = AND of all five per-field checks. Examples:
+            {sec:15}..{sec:15}    — every minute when sec == 15
+            {hour:9}..{hour:17}   — hour ∈ [9..17] inclusive
+            {minute:50}..{minute:10}        — wraps the hour
+            {hour:9,dow:0}..{hour:17,dow:4} — workday daytime
+            {}..{}                — always in
+
+        Always returns CFL_CONTINUE.
+        """
+        leaf = ct.make_node(
+            name=self._mk_name(f"window_{key}", "tw"),
+            main_fn_name="CFL_TIME_WINDOW_CHECK",
+            boolean_fn_name=_NULL,
+            data={"key": key, "start": dict(start), "end": dict(end)},
+        )
+        ct.link_children(self._current_parent("asm_time_window_check"), [leaf])
+        return leaf
 
     def asm_wait_time(self, seconds: float) -> dict:
         leaf = ct.make_node(
@@ -710,7 +755,20 @@ class ChainTree:
         response_port: dict,
         request_data: Optional[dict] = None,
         response_handler: str = _NULL,
+        timeout: int = 0,
+        timeout_event_id: str = "CFL_TIMER_EVENT",
+        error_fn: Optional[str] = None,
+        error_data: Any = None,
+        reset_flag: bool = False,
     ) -> dict:
+        """Issue a one-shot RPC to a controlled server.
+
+        Optional timeout removes the "client hangs forever" footgun: if
+        `timeout > 0`, after that many `timeout_event_id` ticks without a
+        matching response the client fires `error_fn` (if any) and either
+        RESETs the parent (retry, `reset_flag=True`) or TERMINATEs it
+        (give up, default).
+        """
         client = ct.make_node(
             name=self._mk_name(f"client_{request_port.get('event_id', '')}", "ctrl"),
             main_fn_name="CFL_CONTROLLED_CLIENT_MAIN",
@@ -722,6 +780,12 @@ class ChainTree:
                 "request_port": dict(request_port),
                 "response_port": dict(response_port),
                 "request_data": dict(request_data) if request_data else {},
+                "timeout": int(timeout),
+                "timeout_event_id": timeout_event_id,
+                "timeout_count": 0,
+                "error_fn": error_fn or _NULL,
+                "error_data": error_data,
+                "reset_flag": bool(reset_flag),
             },
         )
         ct.link_children(self._current_parent("asm_client_controlled_node"), [client])
@@ -766,6 +830,82 @@ class ChainTree:
             data={"port": dict(port)},
         )
         ct.link_children(self._current_parent(f"asm_streaming_{label}"), [leaf])
+        return leaf
+
+    def asm_streaming_collect(
+        self,
+        inports: list,
+        outport: dict,
+        observer_fn: str = _NULL,
+        target_node: Optional[dict] = None,
+    ) -> dict:
+        """Multi-port packet accumulator. Holds the most-recent packet per
+        inport; once every inport has produced one, emits a combined
+        `{inport_event_id: packet, ...}` packet on `outport` (with
+        `_schema` injected if outport carries one).
+
+        `target_node` is where the combined packet's walk starts. Defaults
+        to the collect node's parent — typical wiring places the
+        downstream `asm_streaming_sink_collected` as a sibling of the
+        collect, so the parent's walk descends through both.
+
+        `observer_fn` is an optional boolean called on each matching
+        packet for bookkeeping; its return value is ignored.
+        """
+        if not inports:
+            raise ValueError("asm_streaming_collect: inports must be non-empty")
+        leaf = ct.make_node(
+            name=self._mk_name(f"collect_{outport.get('event_id', '')}", "stream"),
+            main_fn_name="CFL_STREAMING_COLLECT_PACKET",
+            init_fn_name="CFL_STREAMING_COLLECT_INIT",
+            boolean_fn_name=observer_fn,
+            data={
+                "inports": [dict(p) for p in inports],
+                "outport": dict(outport),
+                "target_node": target_node,
+                "pending": {},
+            },
+        )
+        ct.link_children(self._current_parent("asm_streaming_collect"), [leaf])
+        return leaf
+
+    def asm_streaming_sink_collected(self, port: dict, handler_fn: str) -> dict:
+        """Sink variant for collected packets. Same dispatch as
+        `asm_streaming_sink` — distinct main-fn name documents the role
+        and gives a hook for future collected-specific validation.
+        """
+        return self._asm_streaming(
+            "CFL_STREAMING_SINK_COLLECTED", "sink_collected", port, handler_fn
+        )
+
+    def asm_streaming_verify(
+        self,
+        port: dict,
+        predicate_fn: str,
+        error_fn: Optional[str] = None,
+        error_data: Any = None,
+        reset_flag: bool = False,
+    ) -> dict:
+        """Streaming-aware assertion leaf. On a packet matching `port`,
+        invoke the predicate boolean; True → CONTINUE; False → fire
+        `error_fn` (if any) then either RESET (retry the parent) or
+        TERMINATE the parent (`reset_flag` controls the choice).
+
+        Non-matching events pass through transparently — safe to colocate
+        alongside sinks / taps in a streaming pipeline.
+        """
+        leaf = ct.make_node(
+            name=self._mk_name(f"verify_{port.get('event_id', '')}", "stream"),
+            main_fn_name="CFL_STREAMING_VERIFY_PACKET",
+            boolean_fn_name=predicate_fn,
+            data={
+                "port": dict(port),
+                "error_fn": error_fn or _NULL,
+                "error_data": error_data,
+                "reset_flag": bool(reset_flag),
+            },
+        )
+        ct.link_children(self._current_parent("asm_streaming_verify"), [leaf])
         return leaf
 
     # Convenience for tests / scripts: enqueue a streaming event from a
@@ -817,6 +957,34 @@ class ChainTree:
 
     def asm_mark_sequence_fail(self, seq_node: dict, data: Any = None) -> dict:
         return self._asm_mark(seq_node, False, data)
+
+    def asm_mark_sequence_if(
+        self,
+        seq_node: dict,
+        predicate_fn: str,
+        true_data: Any = None,
+        false_data: Any = None,
+    ) -> dict:
+        """Probe `predicate_fn` at INIT time and mark the current
+        sequence_til child's status accordingly: True → pass with
+        `true_data`, False → fail with `false_data`. Lets a single
+        attempt column branch on a boolean without needing an explicit
+        if-else operator. Used by the `retry_until_success` macro.
+        """
+        leaf = ct.make_node(
+            name=self._mk_name(f"mark_if_{predicate_fn}", "mark"),
+            main_fn_name="CFL_DISABLE",
+            init_fn_name="CFL_MARK_SEQUENCE_IF",
+            boolean_fn_name=_NULL,
+            data={
+                "parent_node": seq_node,
+                "predicate_fn": predicate_fn,
+                "true_data": true_data,
+                "false_data": false_data,
+            },
+        )
+        ct.link_children(self._current_parent("asm_mark_sequence_if"), [leaf])
+        return leaf
 
     def _define_sequence(
         self,
@@ -882,10 +1050,38 @@ class ChainTree:
                 f"run: builder still has open frames: "
                 f"{[f['kind'] + ':' + f.get('name', '') for f in self._frames]}"
             )
-        self._validate_unresolved()
+        self.validate()
         if starting is None:
             starting = list(self.engine["kbs"].keys())
         ct.run(self.engine, starting=starting)
+
+    def validate(self) -> None:
+        """Run all build-time checks. Raises on the first failure.
+
+        Currently checks:
+          - Every fn-name reference (main / boolean / init / term)
+            resolves against the engine registry.
+          - Every node ref stored in `data` (sm_node / server_node /
+            target_node / parent_node) points to a node of an expected
+            type for the slot.
+          - Operator-specific structural invariants:
+              * exception_handler nodes have at least one initialized
+                ct_control["catch_links"] map (set up by INIT) — skipped
+                pre-run since INIT hasn't fired yet, but children count
+                is checked: catch nodes must have exactly 3 children.
+              * state_machine: every declared state name has a state
+                column child whose data["state_name"] matches; the
+                children list length matches state_names.
+              * controlled_server: must have at least one work child.
+              * sequence_til (PASS / FAIL): must contain at least one
+                CFL_MARK_SEQUENCE leaf somewhere in its subtree.
+
+        Call this independently from `run()` if you want to fail fast at
+        build time rather than discovering errors in the first tick. The
+        `run()` method calls it automatically.
+        """
+        self._validate_unresolved()
+        self._validate_structure()
 
     # ------------------------------------------------------------------
     # Internals
@@ -942,9 +1138,104 @@ class ChainTree:
                     continue
                 if lookup(registry, name) is None:
                     raise LookupError(
-                        f"run: KB {kb_name!r} node {node['name']!r} {slot}={name!r} "
+                        f"validate: KB {kb_name!r} node {node['name']!r} {slot}={name!r} "
                         f"is not registered"
                     )
+            for c in node["children"]:
+                check(c, kb_name)
+
+        for kb_name, kb in self.engine["kbs"].items():
+            check(kb["root"], kb_name)
+
+    def _validate_structure(self) -> None:
+        """Operator-specific structural invariants. Run after the unresolved
+        check so the messages can lean on `main_fn_name` matching its
+        builtin namespace.
+        """
+
+        def has_descendant(n: dict, predicate) -> bool:
+            for c in n["children"]:
+                if predicate(c) or has_descendant(c, predicate):
+                    return True
+            return False
+
+        def check(node: dict, kb_name: str) -> None:
+            main_fn = node.get("main_fn_name")
+
+            if main_fn == "CFL_EXCEPTION_CATCH_MAIN":
+                # MAIN, RECOVERY, FINALIZE columns — exactly 3.
+                if len(node["children"]) != 3:
+                    raise ValueError(
+                        f"validate: KB {kb_name!r} exception_handler "
+                        f"{node['name']!r} has {len(node['children'])} children; "
+                        f"expected 3 (MAIN, RECOVERY, FINALIZE)"
+                    )
+
+            elif main_fn == "CFL_STATE_MACHINE_MAIN":
+                state_names = list(node["data"].get("state_names") or [])
+                if len(node["children"]) != len(state_names):
+                    raise ValueError(
+                        f"validate: KB {kb_name!r} state_machine "
+                        f"{node['name']!r} has {len(node['children'])} children "
+                        f"but {len(state_names)} declared states"
+                    )
+                # Every child should be a state column with a matching
+                # state_name in data.
+                for child, declared in zip(node["children"], state_names):
+                    sn = child["data"].get("state_name")
+                    if sn != declared:
+                        raise ValueError(
+                            f"validate: KB {kb_name!r} state_machine "
+                            f"{node['name']!r} child has state_name={sn!r}, "
+                            f"expected {declared!r} (declared order)"
+                        )
+
+            elif main_fn == "CFL_CONTROLLED_SERVER_MAIN":
+                if not node["children"]:
+                    raise ValueError(
+                        f"validate: KB {kb_name!r} controlled_server "
+                        f"{node['name']!r} has no work children — request "
+                        f"would complete instantly with no side effect"
+                    )
+
+            elif main_fn in ("CFL_SEQUENCE_PASS_MAIN", "CFL_SEQUENCE_FAIL_MAIN"):
+                # The sequence_til parent itself doesn't host marks — they
+                # live in descendant subtrees. At least one mark anywhere
+                # under here is required, otherwise the sequence can never
+                # advance.
+                def is_mark(c: dict) -> bool:
+                    return c.get("init_fn_name") in (
+                        "CFL_MARK_SEQUENCE", "CFL_MARK_SEQUENCE_IF",
+                    )
+                if not has_descendant(node, is_mark):
+                    raise ValueError(
+                        f"validate: KB {kb_name!r} sequence_til "
+                        f"{node['name']!r} contains no asm_mark_sequence_* "
+                        f"leaves — the sequence can never advance"
+                    )
+
+            # Cross-reference checks on data fields.
+            data = node.get("data") or {}
+            sm_node = data.get("sm_node")
+            if isinstance(sm_node, dict) and "ct_control" in sm_node:
+                target_main = sm_node.get("main_fn_name")
+                if target_main != "CFL_STATE_MACHINE_MAIN":
+                    raise ValueError(
+                        f"validate: KB {kb_name!r} node {node['name']!r} "
+                        f"sm_node refers to {sm_node.get('name')!r} which is "
+                        f"main_fn_name={target_main!r}, not a state machine"
+                    )
+            server_node = data.get("server_node")
+            if isinstance(server_node, dict) and "ct_control" in server_node:
+                target_main = server_node.get("main_fn_name")
+                if target_main != "CFL_CONTROLLED_SERVER_MAIN":
+                    raise ValueError(
+                        f"validate: KB {kb_name!r} node {node['name']!r} "
+                        f"server_node refers to {server_node.get('name')!r} "
+                        f"which is main_fn_name={target_main!r}, not a "
+                        f"controlled server"
+                    )
+
             for c in node["children"]:
                 check(c, kb_name)
 

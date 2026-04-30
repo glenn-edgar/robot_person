@@ -7,7 +7,7 @@ entry points. Builtins, DSL, and bridge functions live in sibling packages
 
 from __future__ import annotations
 
-from . import codes, engine, event_queue, node, registry, walker
+from . import codes, engine, event_queue, node, registry, serialize, walker
 from .codes import (
     CFL_CONTINUE,
     CFL_DISABLE,
@@ -56,6 +56,12 @@ from .registry import (
     add_se_one_shot,
     add_se_pred,
     new_registry,
+)
+from .serialize import (
+    deserialize_into,
+    deserialize_tree,
+    serialize_chain_tree,
+    serialize_tree,
 )
 
 __all__ = [
@@ -108,11 +114,17 @@ __all__ = [
     "add_se_pred",
     "add_se_one_shot",
     "add_se_io_one_shot",
+    # serialization
+    "serialize_tree",
+    "deserialize_tree",
+    "serialize_chain_tree",
+    "deserialize_into",
     # submodules (for advanced users)
     "codes",
     "engine",
     "event_queue",
     "node",
     "registry",
+    "serialize",
     "walker",
 ]

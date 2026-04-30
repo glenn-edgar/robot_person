@@ -173,3 +173,49 @@ def cfl_mark_sequence(handle, node) -> None:
         "status": bool(node["data"]["result"]),
         "data": node["data"].get("data"),
     }
+
+
+def cfl_mark_sequence_if(handle, node) -> None:
+    """One-shot variant of CFL_MARK_SEQUENCE that consults a boolean
+    predicate to decide pass vs fail.
+
+    node["data"] schema:
+        {
+            "parent_node":   <sequence_til parent node ref>,
+            "predicate_fn":  str (registered boolean fn name),
+            "true_data":     Any (recorded if predicate True),
+            "false_data":    Any (recorded if predicate False),
+        }
+
+    Used by the `retry_until_success` macro: each attempt column probes
+    the user-supplied predicate and marks pass-or-fail accordingly,
+    letting `sequence_til_pass` short-circuit on the first success.
+    """
+    from ct_runtime.codes import CFL_EVENT_TYPE_NULL
+    from ct_runtime.registry import lookup_boolean
+
+    parent = node["data"].get("parent_node")
+    if parent is None:
+        return
+    state = parent["ct_control"].get("sequence_state")
+    if state is None:
+        return
+
+    pred_name = node["data"].get("predicate_fn")
+    if not pred_name or pred_name == "CFL_NULL":
+        return
+    pred = lookup_boolean(handle["engine"]["registry"], pred_name)
+    if pred is None:
+        raise LookupError(
+            f"CFL_MARK_SEQUENCE_IF: predicate {pred_name!r} not in registry"
+        )
+    result = bool(pred(handle, node, CFL_EVENT_TYPE_NULL,
+                       "CFL_MARK_PROBE", None))
+
+    idx = state["current_index"]
+    while len(state["results"]) <= idx:
+        state["results"].append(None)
+    state["results"][idx] = {
+        "status": result,
+        "data": node["data"].get("true_data" if result else "false_data"),
+    }

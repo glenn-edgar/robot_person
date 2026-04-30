@@ -24,6 +24,7 @@ from . import (
     streaming,
     supervisor,
     system,
+    time_window,
     verify,
     wait,
 )
@@ -80,6 +81,8 @@ def register_all_builtins(registry: dict) -> None:
                  description="sequence termination no-op")
     add_one_shot(registry, "CFL_MARK_SEQUENCE", sequence_til.cfl_mark_sequence,
                  description="record (status, data) into parent's sequence_state.results[current_index]")
+    add_one_shot(registry, "CFL_MARK_SEQUENCE_IF", sequence_til.cfl_mark_sequence_if,
+                 description="probe predicate_fn at INIT; mark pass on True else fail")
 
     # Controlled nodes: client-server RPC over directed events.
     add_main(registry, "CFL_CONTROLLED_SERVER_MAIN", controlled.cfl_controlled_server_main,
@@ -100,6 +103,14 @@ def register_all_builtins(registry: dict) -> None:
              description="match inport → boolean False ⇒ CFL_HALT (blocks downstream)")
     add_main(registry, "CFL_STREAMING_TRANSFORM_PACKET", streaming.cfl_streaming_transform_packet,
              description="match inport → call user boolean (user emits on outport)")
+    add_main(registry, "CFL_STREAMING_COLLECT_PACKET", streaming.cfl_streaming_collect_packet,
+             description="multi-port join: emit combined packet on outport when every inport has fired")
+    add_one_shot(registry, "CFL_STREAMING_COLLECT_INIT", streaming.cfl_streaming_collect_init,
+                 description="reset collect's pending-packet store on (re-)activation")
+    add_main(registry, "CFL_STREAMING_SINK_COLLECTED", streaming.cfl_streaming_sink_collected,
+             description="sink variant for collect-shaped packets (semantic alias of SINK)")
+    add_main(registry, "CFL_STREAMING_VERIFY_PACKET", streaming.cfl_streaming_verify_packet,
+             description="streaming-aware assertion: predicate True → CONTINUE; False → error_fn + RESET/TERMINATE")
 
     # Exception catch + heartbeat (3-stage MAIN/RECOVERY/FINALIZE pipeline).
     add_main(registry, "CFL_EXCEPTION_CATCH_MAIN", exception.cfl_exception_catch_main,
@@ -141,6 +152,10 @@ def register_all_builtins(registry: dict) -> None:
     add_one_shot(registry, "CFL_RESET_STATE_MACHINE", state_machine.cfl_reset_state_machine,
                  description="post a high-pri CFL_RESET_STATE_MACHINE_EVENT to a SM node")
 
+    # Wall-clock window: writes bool to kb.blackboard[key] each tick.
+    add_main(registry, "CFL_TIME_WINDOW_CHECK", time_window.cfl_time_window_check,
+             description="write True/False to kb.blackboard[key] based on local-time window")
+
     # System utilities.
     add_one_shot(registry, "CFL_LOG_MESSAGE", system.cfl_log_message,
                  description="emit node.data['message'] via engine logger")
@@ -171,5 +186,6 @@ def register_all_builtins(registry: dict) -> None:
 __all__ = [
     "register_all_builtins",
     "column", "control", "controlled", "exception", "se_bridge", "sequence_til",
-    "state_machine", "streaming", "supervisor", "system", "verify", "wait",
+    "state_machine", "streaming", "supervisor", "system", "time_window",
+    "verify", "wait",
 ]
