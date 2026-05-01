@@ -2,6 +2,60 @@
 
 ---
 
+## SESSION CLOSE — 2026-05-01: concept proven, transition to refinement
+
+End-of-session reflection (Glenn): "we proved a concept now to refine."
+
+What this signals for the project's posture going forward: the
+template_language is **no longer in build-from-scratch mode**.
+The two-phase model works end-to-end on both engines; the closed-loop
+LLM-composition verbs are in place; the chain_tree library covers the
+recurring shapes (state machines, time gates, sequences, terminators,
+containers); the s_engine path round-trips through `new_instance_from_tree`
+and produces correct dict-trees. 5 commits, ~5,000 lines of new code,
+193 passing tests.
+
+The stance for future sessions changes accordingly:
+  - **Driven by real usage, not completionism.** New templates land
+    when a real solution needs them, not because a category feels
+    incomplete.
+  - **Refactor opportunistically.** The recorder's per-engine config
+    refactor (Phase E3) was the right shape; if a future engine
+    surfaces other refactor needs, take them then.
+  - **Architectural memos and worked demos are now the highest-leverage
+    work**, per `openclaw_research.md` §12 and the inheritance-mission
+    framing. A 30-minute LLM-loop demo or a 2-hour memo connecting
+    template_language to the layered-invariants thesis is more
+    valuable than another five templates.
+  - **Don't add features, refactor, or introduce abstractions beyond
+    what the next task requires.** From this point the discipline is
+    the same as the spec's: hard-error rule, fail-early, no
+    speculative additions.
+
+## Commits this session (most recent first)
+
+  0362e97  chain_tree library batch 1 + 2 — 7 templates
+  132b634  Phase E — second template + s_engine recorder
+  3f667bf  resolve three spec deviations from impl session
+  7dce8dc  Phases A–D + lazy loader
+  86afab1  (prior session) chain_tree + s_engine time_window rewrite
+
+## What's actually open
+
+  1. Worked LLM-loop demo against `validate_solution` + library.
+  2. Architectural memo connecting template_language to the
+     layered-invariants thesis. Highest-leverage transferable artifact.
+  3. Phase F (DB layer) — still deferred per spec §16.
+  4. More templates if real usage demands; supervisor / exception_handler /
+     retry-with-backoff / wait-for-event / timeout are all candidates.
+  5. s_engine library expansion if cross-engine composition demand
+     surfaces.
+
+The concept is proven; the next pieces are about adoption and
+inheritance, not capability.
+
+---
+
 ## SESSION LOG — 2026-05-01: chain_tree library batch 1 + 2 landed
 
 193/193 tests passing (+1 skipped). Library expansion: 7 new chain_tree
