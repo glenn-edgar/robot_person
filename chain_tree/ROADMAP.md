@@ -101,7 +101,7 @@ In rough chronological order, with test count at the milestone:
 | Controlled-node RPC | 57 | client→server→work→response→client cycle; single in-flight per server |
 | Boundary timer events (SECOND/MINUTE/HOUR) | 61 | first-tick-no-baseline correctness |
 | DSL macros (repeat_n / every_n_seconds / timeout_wrap / guarded_action / wait_then_act) | 67 | starting-point examples; meant to be copied/extended |
-| `CFL_TIME_WINDOW_CHECK` + bridge plumbing (engine `get_wall_time`/`timezone` forwarded to s_engine modules) | 89 | 16 unit + 6 integration tests; native + bridged sides agree |
+| `CFL_TIME_WINDOW_CHECK` + bridge plumbing (engine `get_wall_time`/`timezone` forwarded to s_engine modules) | 89 | 16 unit + 6 integration tests; native + bridged sides agree (sampler later replaced by two wait leaves — see entry below) |
 | Kitchen-sink end-to-end test | 90 | supervised SM + RPC + streaming + time-window gate in one scenario |
 | Streaming `collect` + `sink_collected` (multi-port join) | 96 | latest-wins per-inport; emits combined `{event_id: packet}` on outport |
 | Controlled-node client timeout (`timeout`/`error_fn`/`reset_flag` kwargs) | 99 | mirrors `cfl_wait_main` escalation; removes the "client hangs forever" footgun |
@@ -111,7 +111,8 @@ In rough chronological order, with test count at the milestone:
 | Tree (de)serialization (`ct_runtime/serialize.py`) | 117 | `_node_ref` ID encoding for internal cross-refs; round-trips through JSON; 6 tests |
 | `ChainTree.validate()` build-time helper | 125 | unresolved-fn + structural + cross-ref-type checks; `run()` calls it first; 8 tests |
 | Macros: `retry_until_success` + `state_machine_from_table` | 129 | new `asm_mark_sequence_if` helper underpins retry; SM builds from a flat tuple table; 4 tests |
+| Time-window operator redesign — sampler → two wait leaves | 133 | `CFL_TIME_WINDOW_CHECK` (sampler that wrote `bb[key]`) deleted; replaced with `CFL_WAIT_UNTIL_IN_TIME_WINDOW` and `CFL_WAIT_UNTIL_OUT_OF_TIME_WINDOW` (HALT/DISABLE wait shape). Engine builtins no longer touch the user blackboard. Bridge symmetry with s_engine dropped — chain_tree and s_engine are independent engines. |
+| Time-window companion fix on s_engine side | 133 (chain_tree) / 205 (s_engine) | `se_time_window_check` (sampler that wrote `dictionary[key]`) deleted; replaced with three operators that share `_in_window` helpers: `se_wait_until_in_time_window` and `se_wait_until_out_of_time_window` (m_call wait leaves; HALT/DISABLE drop into `chain_flow` / `sequence`) and `se_in_time_window` (p_call predicate; plugs into `if_then_else`/`cond`/SM transitions/`on_rising_edge`). `pred_not(in_time_window(...))` is the inverse predicate — no separate "out_of" p_call. README rewritten. Chain_tree test count unchanged (bridge still works against the new s_engine surface). |
 
-Six subpackages (added `ct_runner`), ~19 test files, 129 tests, no top-level
-`__init__.py`, all green (also verified s_engine 190/190 still green at
-each step).
+Six subpackages (added `ct_runner`), 19 test files, 133 tests, no top-level
+`__init__.py`, all green. s_engine independently at 205 tests.

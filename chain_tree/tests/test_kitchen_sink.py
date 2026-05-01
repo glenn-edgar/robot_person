@@ -3,8 +3,8 @@
 Realistic shape: a sensor-monitor workflow gated by business hours.
 
   state_machine "workflow":
-    state "check"      — assert wall-clock is in business hours via
-                         time_window_check + verify, then transition.
+    state "check"      — wait until wall clock is in business hours via
+                         wait_until_in_time_window, then transition.
     state "collecting" — streaming sink + 4 emit packets through a
                          quality filter (one of them fails the
                          predicate); after 3 good readings a
@@ -17,7 +17,7 @@ Realistic shape: a sensor-monitor workflow gated by business hours.
     state "done"       — log "complete"; SM detects the column is
                          finished and disables itself.
 
-Operators exercised: time_window_check, verify, state_machine + change_state,
+Operators exercised: wait_until_in_time_window, state_machine + change_state,
 streaming_sink + emit_streaming (with inline quality filtering in the
 handler), wait_for_event + timeout, controlled_server, controlled_client,
 log, plus the bridge-equivalent of cfl_internal_event from a user fn.
@@ -51,13 +51,6 @@ def test_kitchen_sink_workflow():
     # sm_holder[0] is filled in after the SM is built; the streaming
     # handler closes over it to target the SM with READINGS_DONE.
     sm_holder: list = []
-
-    def biz_check(handle, node, event_type, event_id, event_data):
-        # Boolean fns must filter CFL_TERMINATE_EVENT (terminate teardown
-        # path fires the boolean during disable_node).
-        if event_id == "CFL_TERMINATE_EVENT":
-            return False
-        return bool(handle["blackboard"].get("biz_hours", False))
 
     def on_reading(handle, node, event_type, event_id, event_data):
         # Same filter contract as biz_check.
@@ -104,7 +97,6 @@ def test_kitchen_sink_workflow():
         timezone=timezone.utc,
         logger=log.append,
     )
-    chain.add_boolean("CHECK_BIZ_HOURS", biz_check)
     chain.add_boolean("ON_READING", on_reading)
     chain.add_boolean("ALERT_HANDLER", alert_handler)
     chain.add_boolean("ON_RESP", on_resp)
@@ -118,8 +110,7 @@ def test_kitchen_sink_workflow():
     sm_holder.append(sm)
 
     chain.define_state("check")
-    chain.asm_time_window_check("biz_hours", {"hour": 9}, {"hour": 17})
-    chain.asm_verify("CHECK_BIZ_HOURS")
+    chain.asm_wait_until_in_time_window({"hour": 9}, {"hour": 17})
     chain.asm_log_message("biz hours OK")
     chain.asm_change_state(sm, "collecting")
     chain.end_state()
@@ -170,8 +161,6 @@ def test_kitchen_sink_workflow():
 
     bb = chain.engine["kbs"]["monitor"]["blackboard"]
 
-    # Business-hours gate latched True at the configured wall clock.
-    assert bb["biz_hours"] is True
     # Three valid readings counted; the 1.5 reading was dropped.
     assert bb["good_readings"] == 3
     # RPC round-trip: server received the request, client saw the response.

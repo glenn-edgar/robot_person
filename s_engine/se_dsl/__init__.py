@@ -65,7 +65,7 @@ from se_dsl.primitives import (  # noqa: E402
     return_pipeline_continue, return_pipeline_halt, return_pipeline_terminate,
     return_pipeline_reset, return_pipeline_disable, return_pipeline_skip_continue,
     # Time window
-    time_window_check,
+    wait_until_in_time_window, wait_until_out_of_time_window, in_time_window,
     # Nested
     call_tree,
 )
@@ -103,7 +103,7 @@ __all__ = [
     "return_pipeline_continue", "return_pipeline_halt", "return_pipeline_terminate",
     "return_pipeline_reset", "return_pipeline_disable", "return_pipeline_skip_continue",
     # Time window
-    "time_window_check",
+    "wait_until_in_time_window", "wait_until_out_of_time_window", "in_time_window",
     # Nested
     "call_tree",
     # Macros

@@ -70,9 +70,12 @@ Identity-shared blackboard:
 Engine clock forwarding:
 
 - `SE_MODULE_LOAD_INIT` forwards `engine["get_wall_time"]` and
-  `engine["timezone"]` into `new_module`. So both sides' time-window
-  operators (CFL `cfl_time_window_check` and s_engine `se_time_window_check`)
-  use the same wall clock and TZ.
+  `engine["timezone"]` into `new_module`. CFL's wall-clock leaves
+  (`cfl_wait_until_in/out_of_time_window`) and s_engine's window operators
+  see the same clock and TZ. **The two sides do not share semantics by
+  design** — CFL has no sampler/blackboard-write operator; if you need an
+  in-window predicate inside an s_engine tree, use s_engine's facilities,
+  not the bridge.
 
 Tree-call lifetime:
 

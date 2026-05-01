@@ -14,7 +14,7 @@ when constructing a `ChainTree`.
 | `control.py` | Trivial control-flow mains (return-a-fixed-code) and CFL_NULL no-ops | CFL_CONTINUE / CFL_HALT / CFL_TERMINATE / CFL_RESET / CFL_DISABLE / CFL_TERMINATE_SYSTEM mains |
 | `wait.py` | Time- and event-driven waits | CFL_WAIT_TIME, CFL_WAIT_MAIN + CFL_WAIT_FOR_EVENT aux |
 | `verify.py` | Assertion leaf | CFL_VERIFY |
-| `time_window.py` | Wall-clock time-of-day window | CFL_TIME_WINDOW_CHECK |
+| `time_window.py` | Wall-clock time-of-day wait leaves | CFL_WAIT_UNTIL_IN_TIME_WINDOW, CFL_WAIT_UNTIL_OUT_OF_TIME_WINDOW |
 | `state_machine.py` | One-of-N child states + transition events | CFL_STATE_MACHINE_MAIN/_INIT, CFL_CHANGE_STATE / _TERMINATE_ / _RESET_ one-shots |
 | `sequence_til.py` | Pass-on-first-success / fail-on-first-failure containers | CFL_SEQUENCE_PASS_MAIN / FAIL_MAIN, CFL_MARK_SEQUENCE |
 | `supervisor.py` | Erlang-style restart policies | CFL_SUPERVISOR_MAIN/_INIT (ONE_FOR_ONE / ONE_FOR_ALL / REST_FOR_ALL) |

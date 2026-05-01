@@ -74,7 +74,7 @@ and clock callables. `run(engine, starting=[...])` loops:
   then `enable_node(root)` and CT_STOP_ALL. CFL_RESET on a non-root resets
   just the parent.
 - **`get_wall_time` / `timezone` are engine-level**, not module-level. They're
-  used by CFL_TIME_WINDOW_CHECK and forwarded into s_engine modules built via
+  used by the time-window wait leaves and forwarded into s_engine modules built via
   the bridge so both sides see the same clock.
 - **Crash callback is observe-only.** `_handle_crash` calls it inside a
   `try/except BaseException` so a buggy callback can't suppress the crash;

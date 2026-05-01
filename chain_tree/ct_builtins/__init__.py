@@ -152,9 +152,13 @@ def register_all_builtins(registry: dict) -> None:
     add_one_shot(registry, "CFL_RESET_STATE_MACHINE", state_machine.cfl_reset_state_machine,
                  description="post a high-pri CFL_RESET_STATE_MACHINE_EVENT to a SM node")
 
-    # Wall-clock window: writes bool to kb.blackboard[key] each tick.
-    add_main(registry, "CFL_TIME_WINDOW_CHECK", time_window.cfl_time_window_check,
-             description="write True/False to kb.blackboard[key] based on local-time window")
+    # Wall-clock time-of-day wait leaves: HALT/DISABLE on window membership.
+    add_main(registry, "CFL_WAIT_UNTIL_IN_TIME_WINDOW",
+             time_window.cfl_wait_until_in_time_window,
+             description="HALT while wall clock is OUT of window; DISABLE on entry")
+    add_main(registry, "CFL_WAIT_UNTIL_OUT_OF_TIME_WINDOW",
+             time_window.cfl_wait_until_out_of_time_window,
+             description="HALT while wall clock is IN window; DISABLE on exit")
 
     # System utilities.
     add_one_shot(registry, "CFL_LOG_MESSAGE", system.cfl_log_message,

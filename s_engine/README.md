@@ -69,7 +69,7 @@ s_engine/
 │   ├── oneshot.py         # log, dict_set, dict_inc, queue_event, dict_load
 │   ├── return_codes.py    # 18 m_call leaves, one per code
 │   ├── nested_call.py     # se_call_tree (replaces the LuaJIT spawn family)
-│   └── time_window.py     # se_time_window_check (wall-clock window → bool)
+│   └── time_window.py     # se_wait_until_in/out_of_time_window + se_in_time_window
 ├── se_dsl/                # DSL wrappers + macros
 │   ├── __init__.py        # make_node() + flat public surface
 │   ├── primitives.py      # ~67 DSL wrappers, one per builtin
@@ -163,7 +163,7 @@ explicitly registered can be referenced. No arbitrary code execution.
 | **Predicates — range/counter** (3) | `dict_in_range`, `dict_inc_and_test`, `state_inc_and_test` |
 | **Delays / timing** (5) | `time_delay`, `wait_event`, `wait`, `wait_timeout`, `nop` |
 | **Verify / watchdogs** (3) | `verify`, `verify_and_check_elapsed_time`, `verify_and_check_elapsed_events` |
-| **Time window** (1) | `time_window_check` (wall-clock local-time window → blackboard bool) |
+| **Time window** (3) | `wait_until_in_time_window`, `wait_until_out_of_time_window` (m_call wait leaves), `in_time_window` (p_call predicate) |
 | **Side effects** (6) | `log`, `dict_log`, `dict_set`, `dict_inc`, `queue_event`, `dict_load` |
 | **Return-code leaves** (18) | `return_continue`, `return_disable`, …, `return_pipeline_skip_continue` |
 | **Nested trees** (1) | `call_tree(tree_or_name)` |
@@ -186,13 +186,18 @@ Wrap with `dsl.make_node(fn, call_type, params=..., children=...)`.
 User fns read/write `inst["module"]["dictionary"][key]` directly — no
 accessor layer.
 
-## Time-window helper (`time_window_check`)
+## Time-window operators
 
-Writes a boolean to `dict[key]` every tick based on whether the current
-**local wall-clock time** falls inside a configured window. Time is read via
+Three operators for gating on local wall-clock time. Wall clock is read via
 `module["get_wall_time"]()` (Linux 64-bit epoch seconds) and converted using
 `module["timezone"]` (`None` = system local; pass a `zoneinfo.ZoneInfo` or
 `datetime.timezone` to pin it).
+
+| Operator | Call type | Returns | Use |
+|---|---|---|---|
+| `wait_until_in_time_window(start, end)` | m_call | HALT while OUT, DISABLE on entry | wait inside `chain_flow` / `sequence` until window opens |
+| `wait_until_out_of_time_window(start, end)` | m_call | HALT while IN, DISABLE on exit | hold off until window closes — pair after a one-shot to fire once per window |
+| `in_time_window(start, end)` | p_call | bool | predicate for `if_then_else`, `cond`, state-machine guards, `on_rising_edge`, etc. Use `pred_not(in_time_window(...))` for the inverse. |
 
 ```python
 from zoneinfo import ZoneInfo
@@ -200,27 +205,31 @@ import se_dsl as dsl
 
 mod = new_module(timezone=ZoneInfo("America/Los_Angeles"), ...)
 
-plan = dsl.sequence(
-    dsl.time_window_check("working_hours",
-                          {"hour": 9, "dow": 0},    # Mon 09:00:00
-                          {"hour": 17, "dow": 4}),  # Fri 17:59:59
-    dsl.if_then(dsl.dict_eq("working_hours", True),
-                dsl.log("in office hours")),
+# Predicate gating — runs the action only during business hours.
+plan = dsl.if_then(
+    dsl.in_time_window({"hour": 9, "dow": 0}, {"hour": 17, "dow": 4}),
+    dsl.log("inside business hours"),
 )
+
+# Wait-shaped composition — fire once per business-hours window.
+fire_once_per_day = dsl.chain_flow(
+    dsl.wait_until_in_time_window({"hour": 9}, {"hour": 17}),
+    dsl.log("good morning"),
+    dsl.wait_until_out_of_time_window({"hour": 9}, {"hour": 17}),
+)
+# Wrap in a parent that RESETs `fire_once_per_day` to re-arm next day.
 ```
 
-Window shape:
+Window shape — uniform per-field masks across {hour, minute, sec, dow, dom}:
 
-- **`hour`, `minute`, `sec`** compose into a single seconds-of-day span:
-  missing-from-`start` defaults to `0`, missing-from-`end` defaults to the
-  unit's max (`23/59/59`); `end < start` wraps past midnight.
-- **`dow` (0=Mon..6=Sun)** and **`dom` (1..31)** are independent per-field
-  masks AND'd with the span; each must appear in both `start` and `end` (or
-  neither = wildcard), and forms its own wrap-aware closed range.
+- Both `start[f]` and `end[f]` present → field ∈ [start[f], end[f]]
+  inclusive; wrap allowed when `end[f] < start[f]`
+  (e.g. `minute 50..10` means `[50..59] ∪ [0..10]`).
+- Both absent → field unconstrained.
+- Exactly one present → `ValueError` (paired-or-absent rule).
 
-The operator is always active — it returns `SE_PIPELINE_CONTINUE` every
-tick (including `INIT` / `TERMINATE`), so it composes inside any `sequence`
-or `fork` without blocking.
+Final answer = AND of all five per-field checks. Engine code does not write
+to `dictionary` — these operators are pure samplers/gates.
 
 ## Execution model
 

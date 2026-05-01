@@ -80,8 +80,8 @@ def new_engine(
     crash_callback: called as fn(exc, event) when a user fn raises.
     get_time / sleep: injected for testability.
     get_wall_time: callable returning Linux 64-bit epoch seconds; used by
-                   wall-clock operators (e.g. CFL_TIME_WINDOW_CHECK) and
-                   forwarded to s_engine modules built via the bridge.
+                   wall-clock operators (CFL_WAIT_UNTIL_IN/OUT_OF_TIME_WINDOW)
+                   and forwarded to s_engine modules built via the bridge.
                    Defaults to int(time.time()).
     timezone:      tzinfo for local-time conversions. None = system local.
     """

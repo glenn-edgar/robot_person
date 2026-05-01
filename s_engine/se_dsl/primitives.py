@@ -411,38 +411,55 @@ return_pipeline_skip_continue = _rc(_R.return_pipeline_skip_continue)
 
 
 # ---------------------------------------------------------------------------
-# Time window
+# Time window — three operators, all sharing field-mask logic.
+# Wall clock from module.get_wall_time(); local time via module.timezone.
+# Window shape (uniform per-field masks across hour/minute/sec/dow/dom) and
+# paired-or-absent rule documented in se_builtins/time_window.py.
 # ---------------------------------------------------------------------------
 
-def time_window_check(
-    key: str,
+def wait_until_in_time_window(
     start: Mapping[str, int],
     end: Mapping[str, int],
 ) -> dict:
-    """Write bool to dict[key] each tick: does current LOCAL time match the window?
+    """m_call: HALT while wall clock OUT of the window; DISABLE on first tick IN.
 
-    Time is taken from `module.get_wall_time()` (Linux 64-bit epoch seconds)
-    and converted to local time via `module.timezone` (None = system local).
-
-    Window = uniform per-field masks across {hour, minute, sec, dow, dom}.
-    Each field is independent:
-        - both start[f] and end[f] present → field ∈ [start[f], end[f]]
-          inclusive, wrap allowed when end[f] < start[f]
-        - both absent → field unconstrained
-        - exactly one present → ValueError (paired-or-absent rule)
-
-    Final answer = AND of all five per-field checks. Examples:
-        {sec:15}..{sec:15}    — every minute when sec == 15
-        {hour:9}..{hour:17}   — hour ∈ [9..17] inclusive
-        {minute:50}..{minute:10}        — wraps the hour
-        {hour:9,dow:0}..{hour:17,dow:4} — workday daytime
-        {}..{}                — always in
-
-    Always returns SE_PIPELINE_CONTINUE (always active).
+    Drops into `chain_flow` / `sequence` for wait-shaped composition. To
+    re-arm, RESET the surrounding parent.
     """
     return make_node(
-        _TW.se_time_window_check, "m_call",
-        params={"key": key, "start": dict(start), "end": dict(end)},
+        _TW.se_wait_until_in_time_window, "m_call",
+        params={"start": dict(start), "end": dict(end)},
+    )
+
+
+def wait_until_out_of_time_window(
+    start: Mapping[str, int],
+    end: Mapping[str, int],
+) -> dict:
+    """m_call: HALT while wall clock IN the window; DISABLE on first tick OUT.
+
+    Idiomatic: place after a one-shot action inside `chain_flow` / `sequence`
+    so the action fires once per window crossing. Re-arm via parent RESET.
+    """
+    return make_node(
+        _TW.se_wait_until_out_of_time_window, "m_call",
+        params={"start": dict(start), "end": dict(end)},
+    )
+
+
+def in_time_window(
+    start: Mapping[str, int],
+    end: Mapping[str, int],
+) -> dict:
+    """p_call: True iff current local wall-clock time is in the window.
+
+    Plug into `if_then_else`, `cond`, `state_machine` transition guards,
+    `on_rising_edge`, etc. Use `pred_not(in_time_window(...))` for the
+    inverse — no separate `out_of_time_window` predicate.
+    """
+    return make_node(
+        _TW.se_in_time_window, "p_call",
+        params={"start": dict(start), "end": dict(end)},
     )
 
 

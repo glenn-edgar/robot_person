@@ -171,42 +171,52 @@ class ChainTree:
     def asm_blackboard_set(self, key: str, value: Any) -> dict:
         return self.asm_one_shot("CFL_BLACKBOARD_SET", {"key": key, "value": value})
 
-    def asm_time_window_check(
+    def asm_wait_until_in_time_window(
         self,
-        key: str,
         start: Mapping[str, int],
         end: Mapping[str, int],
     ) -> dict:
-        """Each tick write a bool to kb.blackboard[key] indicating whether the
-        current LOCAL wall-clock time matches the configured window.
+        """HALT until the wall clock falls inside the configured window,
+        then DISABLE. To re-arm, RESET the surrounding parent (subtree
+        composition).
 
-        Wall clock is taken from `engine.get_wall_time()` (Linux 64-bit epoch
-        seconds) and converted to local time via `engine.timezone` (None =
-        system local) — both set at ChainTree construction.
+        Wall clock from `engine.get_wall_time()` (Linux 64-bit epoch
+        seconds), local time via `engine.timezone` (None = system local) —
+        both set at ChainTree construction.
 
-        Window = uniform per-field masks across {hour, minute, sec, dow, dom}.
-        Each field is independent:
-            - both start[f] and end[f] present → field ∈ [start[f], end[f]]
-              inclusive, wrap allowed when end[f] < start[f]
-            - both absent → field unconstrained
-            - exactly one present → ValueError (paired-or-absent rule)
-
-        Final answer = AND of all five per-field checks. Examples:
-            {sec:15}..{sec:15}    — every minute when sec == 15
-            {hour:9}..{hour:17}   — hour ∈ [9..17] inclusive
-            {minute:50}..{minute:10}        — wraps the hour
-            {hour:9,dow:0}..{hour:17,dow:4} — workday daytime
-            {}..{}                — always in
-
-        Always returns CFL_CONTINUE.
+        Window = uniform per-field masks across {hour, minute, sec, dow,
+        dom}; each field independent. See `ct_builtins/time_window.py` for
+        the paired-or-absent rule and wrap semantics.
         """
         leaf = ct.make_node(
-            name=self._mk_name(f"window_{key}", "tw"),
-            main_fn_name="CFL_TIME_WINDOW_CHECK",
+            name=self._mk_name("wait_until_in_window", "tw_in"),
+            main_fn_name="CFL_WAIT_UNTIL_IN_TIME_WINDOW",
             boolean_fn_name=_NULL,
-            data={"key": key, "start": dict(start), "end": dict(end)},
+            data={"start": dict(start), "end": dict(end)},
         )
-        ct.link_children(self._current_parent("asm_time_window_check"), [leaf])
+        ct.link_children(
+            self._current_parent("asm_wait_until_in_time_window"), [leaf]
+        )
+        return leaf
+
+    def asm_wait_until_out_of_time_window(
+        self,
+        start: Mapping[str, int],
+        end: Mapping[str, int],
+    ) -> dict:
+        """HALT while the wall clock is inside the configured window; DISABLE
+        on exit. Idiomatic use: place after a one-shot action so the action
+        fires once per window crossing. To re-arm, RESET the parent.
+        """
+        leaf = ct.make_node(
+            name=self._mk_name("wait_until_out_of_window", "tw_out"),
+            main_fn_name="CFL_WAIT_UNTIL_OUT_OF_TIME_WINDOW",
+            boolean_fn_name=_NULL,
+            data={"start": dict(start), "end": dict(end)},
+        )
+        ct.link_children(
+            self._current_parent("asm_wait_until_out_of_time_window"), [leaf]
+        )
         return leaf
 
     def asm_wait_time(self, seconds: float) -> dict:

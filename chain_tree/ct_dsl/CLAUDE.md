@@ -13,7 +13,7 @@ chain = ChainTree(
     tick_period=0.25,
     logger=print,
     get_time=time.monotonic,        # for tick scheduling / wait_time
-    get_wall_time=int_epoch_fn,     # for time_window_check + s_engine bridge
+    get_wall_time=int_epoch_fn,     # for time-window wait leaves + s_engine bridge
     timezone=zoneinfo.ZoneInfo("..."),
     sleep=time.sleep,
     crash_callback=...,
@@ -29,7 +29,8 @@ chain.start_test(name)               # opens a KB; auto-named root column
   chain.asm_wait_time(seconds)
   chain.asm_wait_for_event(event_id, count=, timeout=, error_fn=, ...)
   chain.asm_verify(bool_fn_name, error_fn=, reset_flag=)
-  chain.asm_time_window_check(key, start, end)
+  chain.asm_wait_until_in_time_window(start, end)
+  chain.asm_wait_until_out_of_time_window(start, end)
   chain.asm_terminate / asm_halt / asm_disable / asm_reset / asm_terminate_system
   chain.define_column(name) / end_column()
   chain.define_state_machine(...) / define_state / end_state / end_state_machine

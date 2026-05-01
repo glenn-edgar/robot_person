@@ -66,6 +66,8 @@ For each subsystem's design rationale, see `DESIGN.md`.
 | Column / fork container | `define_column / end_column` | scans children; CONTINUE while any enabled, else DISABLE |
 | Wait time | `asm_wait_time(seconds)` | HALT until elapsed since INIT, then DISABLE |
 | Wait for event | `asm_wait_for_event(event_id, count, timeout, error_fn, reset_flag)` | counts target events; on timeout fires error_fn + TERMINATE/RESET |
+| Wait until in time window | `asm_wait_until_in_time_window(start, end)` | HALT while wall clock OUT of window; DISABLE on entry. Re-arm via parent RESET. |
+| Wait until out of time window | `asm_wait_until_out_of_time_window(start, end)` | HALT while wall clock IN window; DISABLE on exit. Pair after a one-shot to fire once per window. |
 | Verify (assertion) | `asm_verify(bool_fn, error_fn, reset_flag)` | aux true → CONTINUE, false → fire error_fn + TERMINATE/RESET |
 | State machine | `define_state_machine(states, initial)` + `define_state / end_state` + `asm_change_state(sm, target)` | parent of state columns; CFL_CHANGE_STATE_EVENT high-pri toggles which state is enabled |
 | Sequence-til pass | `define_sequence_til_pass / asm_mark_sequence_pass(seq) / asm_mark_sequence_fail(seq) / end_sequence_til_pass` | sequential children with early-exit on first pass |
@@ -147,6 +149,17 @@ Items where the implementation differs from `DESIGN.md`'s text, with rationale:
    filter/transform nodes. For pipelines, target the column root (captured
    from `start_test()` return value); for direct delivery with no upstream,
    target the consumer.
+
+7. **Engine builtins do not write to the KB blackboard.** The blackboard is
+   the user's namespace — only `CFL_BLACKBOARD_SET` (user-invoked one-shot
+   with user-supplied key) writes there. Operators that need to publish
+   state instead express it through return codes (HALT/DISABLE/etc.) which
+   parents interpret directly. Wait-style leaves (`asm_wait_time`,
+   `asm_wait_for_event`, `asm_wait_until_in/out_of_time_window`) HALT until
+   their condition holds, then DISABLE — no `bb[key]` flag needed. This is
+   not symmetric with s_engine, where the per-instance `dictionary` IS the
+   tree's working memory and predicates routinely read/write it. The two
+   engines are independent.
 
 ---
 

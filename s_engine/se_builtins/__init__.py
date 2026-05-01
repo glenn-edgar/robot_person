@@ -60,7 +60,11 @@ _RETURN_CODES = (
 
 _NESTED = ("se_call_tree",)
 
-_TIME_WINDOW = ("se_time_window_check",)
+_TIME_WINDOW = (
+    "se_wait_until_in_time_window",
+    "se_wait_until_out_of_time_window",
+    "se_in_time_window",
+)
 
 
 def _collect() -> Dict[str, Callable]:
