@@ -32,7 +32,7 @@ Reading order for a new contributor:
   §7 Templates calling templates — composition
   §8 Everything is a template — leaf/composite/solution uniformity
   §9 Hard-error rule — no silent collision resolution
-  §10 Error vocabulary — 21 codes, single TemplateError class
+  §10 Error vocabulary — 20 codes, single TemplateError class
   §11 Invariant boundary — what's checked where
   §12 The verbs — five-verb API
   §13 Worked example — am_pm_state_machine end-to-end
@@ -124,10 +124,11 @@ as the engine's builder (every `define_*`, `end_*`, `asm_*`, `add_*`,
 
     @dataclass
     class Op:
-        method: str
-        args: tuple
-        kwargs: dict
-        source: list[str]      # template-path stack at recording time
+        method:  str
+        args:    tuple
+        kwargs:  dict
+        source:  list[str]            # template-path stack at recording time
+        out_ref: Optional[RecRef]     # the RecRef the shim returned for this op
 
 The `source` field is a snapshot of the recorder stack at the moment of
 recording. It enables replay-time errors to point at the template that
@@ -137,10 +138,23 @@ The Recorder also maintains a parallel **shadow stack** that mirrors
 the engine builder's frame discipline — every `define_*` pushes,
 `end_*` pops, mismatch raises immediately at the offending call.
 
-Returns from recorder methods that produce engine refs (e.g.
-`define_state_machine`) are **opaque RecRef sentinels**. The Recorder
-records the RecRef in op args; phase 2 maintains a `RecRef → real-node`
-map and substitutes during replay.
+Returns from recorder methods are **opaque RecRef sentinels**. The
+Recorder allocates a fresh `RecRef` for every method call (not just
+the frame-openers), records it on the Op as `out_ref`, and returns
+it to the caller. Phase 2 walks the op-list in order; for each op,
+after the real builder method returns, it stores
+`refs[id(op.out_ref)] = real_return`. Args and kwargs of subsequent
+ops are walked recursively; any `RecRef` value encountered is
+substituted with the corresponding real return before the real
+builder method is called. RecRefs that flow as slot values across
+template boundaries (§5.4) are resolved by the same mechanism — the
+producing op's `out_ref` is the substitution key.
+
+Allocating a RecRef per op (rather than only for frame-openers) keeps
+the recorder simple: it does not need to know which builder methods
+return useful refs and which return `None`. Phase 2 only consumes the
+refs that downstream ops actually mention; unused entries in the
+substitution map cost nothing.
 
 **The `ct` proxy** is a module-level object that resolves to the active
 Recorder via a module-level stack:
@@ -538,7 +552,7 @@ recording.
 subclass. Consumers do `except TemplateError as e: switch on e.code`.
 
     class TemplateError(Exception):
-        code: str                  # one of the 21 codes below
+        code: str                  # one of the 20 codes below
         stage: str                 # "registration" | "expansion" | "replay"
         template_stack: list[str]  # path stack at failure point; [] for registration
         details: dict              # error-specific fields
@@ -785,8 +799,16 @@ a real chain that just doesn't get `run()`.
 
 ### 13.2 Solution that uses it (solutions/am_pm_demo.py)
 
-    import template_language.templates.composites.chain_tree.am_pm_state_machine  # noqa: registers
-    from template_language import ct, use_template, generate_code
+The SM template alone does not open a KB — its body calls
+`ct.define_state_machine(...)` which requires a parent frame. The
+solution wraps the SM template inside `start_test` / `end_test` so
+there is a runnable KB to activate. The KB name and the SM name are
+independent; the example uses the same string for both purely for
+readability.
+
+    from template_language import (
+        ct, define_template, use_template, generate_code,
+    )
 
     def _morning():
         ct.asm_log_message("good morning, sensors warming up")
@@ -794,18 +816,36 @@ a real chain that just doesn't get `run()`.
     def _afternoon():
         ct.asm_log_message("afternoon shift")
 
-    op_list = use_template(
-        "composites.chain_tree.am_pm_state_machine",
-        sm_name="time_of_day_sm",
-        morning_action=_morning,
-        afternoon_action=_afternoon,
+    def am_pm_demo():
+        ct.start_test("time_of_day_sm")
+        use_template(
+            "composites.chain_tree.am_pm_state_machine",
+            sm_name="time_of_day_sm",
+            morning_action=_morning,
+            afternoon_action=_afternoon,
+        )
+        ct.end_test()
+
+    define_template(
+        path     = "solutions.chain_tree.am_pm_demo",
+        fn       = am_pm_demo,
+        kind     = "solution",
+        engine   = "chain_tree",
     )
-    chain = generate_code(op_list, tick_period=0.25)
+
+    op_list = use_template("solutions.chain_tree.am_pm_demo")
+    chain   = generate_code(op_list, tick_period=0.25)
     chain.run(starting=["time_of_day_sm"])
+
+The lazy loader resolves the `composites.chain_tree.am_pm_state_machine`
+path to its conventional file location on the first
+`use_template(...)` call inside `am_pm_demo`'s body — no explicit
+import of the SM template module is needed at the solution level.
 
 ### 13.3 Op-list (after phase 1)
 
     OpList(engine="chain_tree", ops=[
+      Op("start_test",          ("time_of_day_sm",), {}),                    # solution wrapper
       Op("add_one_shot",        ("time_of_day_sm_DECIDE", <fn>),       {}),
       Op("define_state_machine",("time_of_day_sm",),
                                 {"state_names":["initial","am","pm"],"initial_state":"initial"}),
@@ -822,10 +862,12 @@ a real chain that just doesn't get `run()`.
       Op("asm_log_message",     ("afternoon shift",), {}),                   # spliced from afternoon
       Op("end_state",           (), {}),
       Op("end_state_machine",   (), {}),
+      Op("end_test",            (), {}),                                      # solution wrapper
     ])
 
 Each Op also carries a `source` field (omitted above for brevity) =
-the template-path stack at the moment of recording.
+the template-path stack at the moment of recording, plus an `out_ref`
+field — see §3.
 
 ----------------------------------------------------------------------
 14. File layout
@@ -977,7 +1019,7 @@ Get the chain_tree path working first, all the way through
         detected; bad values fail.
 
   A2. **errors.py** — TemplateError + Codes.
-      - `Codes` constants for all 21 codes (string values).
+      - `Codes` constants for all 20 codes (string values).
       - `TemplateError` class with `code`, `stage`, `template_stack`,
         `details`, `to_dict()`.
       - Tests: round-trip of `to_dict()`; no missing codes vs the
@@ -1093,7 +1135,7 @@ chain_tree pattern.
   - One leaf and one composite template hand-written and registered.
   - `am_pm_state_machine` round-trip test passes (build + one tick of
     `chain.run()` produces the expected log messages).
-  - All 21 error codes raise from at least one test.
+  - All 20 error codes raise from at least one test.
   - `describe_template` returns the documented JSON shape for the
     am_pm template.
   - No DB, no s_engine side, no `validate_solution`, no LLM verbs.

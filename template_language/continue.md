@@ -66,44 +66,38 @@ fixtures. All five Phase D verbs plus `op_list_to_python` /
   - **conftest.py** — autouse `_clean_registry` fixture clears the
     registry before+after each test. Always-on templates are no longer
     hardcoded in conftest; the lazy loader handles them on demand.
-  - **12 test files** under `tests/`. Coverage: 18 of 20 error codes
-    raised by at least one test.
+  - **12 test files** under `tests/`. Coverage: **20 of 20** error
+    codes raised by at least one test (audited 2026-05-01).
 
-### Spec deviations / gaps discovered while implementing
+### Spec deviations / gaps discovered while implementing — RESOLVED
 
-  1. **Code-count discrepancy.** `template_design.txt` §0, §10, and §17
-     repeatedly say "21 codes," but §10.1 + §10.2 + §10.3 enumerate
-     **20** (7 + 10 + 3). Aligned implementation to the enumeration.
-     The `assert len(ALL_CODES) == 20` in `errors.py` has a comment
-     pointing at this. **Reconciliation TODO**: either edit the spec to
-     "20 codes" everywhere, or add a 21st code. No good candidates for
-     a 21st leap to mind — the categories already feel complete.
+The first three items below were resolved by editing
+`template_design.txt` in this session. Item 4 is informational only.
 
-  2. **§13.2 example is unrunnable.** The "solution that uses it"
-     snippet calls `chain.run(starting=["time_of_day_sm"])` as if
-     `sm_name` were a KB name. It isn't — `define_state_machine`
-     requires a parent frame, so the SM template alone never opens a
-     KB. Solutions need a separate KB-bracketing wrapper template that
-     does `start_test(...)` + `use_template("...sm...")` +
-     `end_test()`. The acceptance test demonstrates this pattern (see
-     `_build_am_pm_solution` in `tests/test_am_pm_template.py`).
-     **Spec edit needed**: replace §13.2 with a wrapping solution
-     template, or add an explicit "solution wrapper" pattern in §8.
+  1. **Code-count discrepancy — RESOLVED.** Spec said "21 codes" in
+     four places (§0, §10, §17 twice) but enumerated 20 (7+10+3).
+     Edited spec prose to say 20 everywhere. `errors.py` asserts
+     `len(ALL_CODES) == 20`.
 
-  3. **`Op.out_ref` was unspec'd.** Phase 2 needs to map the RecRef
-     returned at recording time to the real builder return value. The
-     spec describes this conceptually (§3, §5.4) but doesn't say where
-     the RecRef lives. Implementation puts it on each `Op` as
-     `out_ref: Optional[RecRef]`; replay does `refs[id(op.out_ref)] =
-     real_return`. **Spec edit needed**: add the field to the Op
-     dataclass sketch in §3.
+  2. **§13.2 unrunnable example — RESOLVED.** Old §13.2 called
+     `chain.run(starting=["time_of_day_sm"])` as if `sm_name` were a
+     KB name; `define_state_machine` requires a parent frame so the SM
+     template alone never opens a KB. Edited §13.2 to show a wrapping
+     `solutions.chain_tree.am_pm_demo` template that brackets the SM
+     template in `start_test` / `end_test`. §13.3 op-list updated to
+     include the wrapper's two extra ops. Lazy-loader note added.
 
-  4. **Slot kind for `start_test` etc. — none.** The spec's §5.5
+  3. **`Op.out_ref` was unspec'd — RESOLVED.** §3 now describes the
+     full Op dataclass (with `out_ref: Optional[RecRef]`) and explains
+     the RecRef-allocation-per-op rule plus the
+     `refs[id(op.out_ref)] = real_return` substitution mechanism.
+
+  4. **Slot kind for `start_test` etc. — informational.** §5.5's
      signature constraints don't say what kind to give first-positional
-     arg name parameters in builder-shadow methods. Not a bug for v1
-     (recorder operates on raw args/kwargs, doesn't validate names'
-     types), but worth a note: name args are always strings in
-     practice, no special kind needed.
+     name parameters in builder-shadow methods. Not a bug — the
+     recorder operates on raw args/kwargs and doesn't validate names'
+     types. Name args are always strings in practice; no special kind
+     needed.
 
 ### Test status
 
