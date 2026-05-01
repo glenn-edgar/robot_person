@@ -2,6 +2,167 @@
 
 ---
 
+## SESSION LOG — 2026-05-01: chain_tree library batch 1 + 2 landed
+
+193/193 tests passing (+1 skipped). Library expansion: 7 new chain_tree
+templates (4 composites in batch 1, 2 composites + 1 leaf in batch 2)
+covering the recurring shapes the modular-BT bet (per
+`openclaw_research.md`) needs to be useful for both human authors and
+LLM composition.
+
+### Templates added
+
+  Batch 1 (composites):
+  - `composites.chain_tree.state_machine` — generic state machine;
+    `states` slot is list of (state_name, body) tuples.
+    Generalization of the Phase C `am_pm_state_machine`.
+  - `composites.chain_tree.time_gate` — parameterized fire_in_window
+    with `on_exit ∈ {"reset","terminate"}`.
+  - `composites.chain_tree.termination` — delayed engine shutdown
+    (asm_terminate_system) with optional pre/post log messages.
+  - `composites.chain_tree.container` — column wrapping a list of
+    zero-arg callable children.
+
+  Batch 2 (sequences + mark leaf):
+  - `composites.chain_tree.try_till_pass` — sequence_til_pass wrapper;
+    children are one-arg callables `(seq) -> None` because mark_link
+    needs the sequence RecRef.
+  - `composites.chain_tree.try_till_fail` — sequence_til_fail wrapper;
+    same children shape.
+  - `leaves.chain_tree.mark_link` — predicate-driven sequence pass/fail
+    leaf. Wraps `asm_mark_sequence_if`; takes seq RecRef + named
+    boolean fn + optional data dict.
+
+### Locked design decisions for the library
+
+  1. **`auto_start: bool = True` is a uniform slot** on every column-
+     opening template (state_machine, time_gate, termination,
+     container) — passed through to the underlying builder method.
+     Intentionally absent from try_till_pass / try_till_fail because
+     `define_sequence_til_*` doesn't expose auto_start at the
+     primitive layer; users wrap in `container(auto_start=False)` if
+     they need startup gating. Per the hard-error / fail-early
+     stance, silent no-op slots are unacceptable.
+
+  2. **`states` slot in state_machine is list-of-tuples**, not a
+     dict. Rationale: order is load-bearing for state machines; dict
+     silently dedups duplicate keys (violates the "no silent
+     resolution" rule); list of tuples reaches the recorder and
+     `define_state` raises DUPLICATE_NAME_IN_RECORDING per the per-SM
+     state namespace check.
+
+  3. **`time_gate.on_exit` vocabulary is `{"reset", "terminate"}`
+     only.** `halt`, `disable`, `terminate_system` rejected — at
+     the on_exit point, the column's children are already disabled
+     so those operations are no-ops or wrong-scope. String enum
+     validated at template-body time (raises ValueError for invalid).
+
+  4. **`termination` uses `asm_terminate_system`** (full engine
+     shutdown). For typical single-KB chains this is what "terminate
+     this kb" means; in multi-KB chains it stops everything. Doc-
+     stringed.
+
+  5. **`mark_link` was named based on Glenn's spec**: the engine's
+     `asm_mark_sequence_pass` / `_fail` were convenience helpers for
+     chain_tree's own DSL tests (the pass/fail decision was static).
+     The production pattern needs a runtime predicate, which maps to
+     `asm_mark_sequence_if`. Single leaf, no mark_pass / mark_fail
+     variants.
+
+  6. **`mark_link.boolean_function_data`** is stored on the leaf's
+     `node["data"]` like other leaves' config (asm_wait_time's
+     `time_delay`, asm_verify's `error_data`). Implementation passes
+     the same dict for both the engine primitive's `true_data` and
+     `false_data` slots — predicate reads via
+     `node["data"]["true_data"]` regardless of outcome; the dict is
+     also recorded as the mark's payload regardless. Drops the
+     dual-payload feature of the engine primitive but keeps the
+     template surface clean.
+
+  7. **try_till_*  children are one-arg callables `(seq) -> None`**
+     while container's children are zero-arg `() -> None`. The
+     signatures honestly reflect the semantic: try_till_* must pass
+     the sequence RecRef to children that mark; container has no
+     such ref. Documented per template.
+
+### Mechanics worth flagging
+
+  - **Annotation-as-Kind**: mark_link uses `seq: Kind.RECREF` and
+    `boolean_function: Kind.ENGINE_BOOLEAN` directly in the function
+    signature. The kinds.py mapper recognizes Kind enum values and
+    passes them through. Cleaner than relying on `Callable` for
+    engine-fn slots (which collapses to ACTION).
+
+  - **Sequence_til children must mark.** The chain_tree engine raises
+    `RuntimeError("sequence_til: child... disabled without calling
+    CFL_MARK_SEQUENCE")` if a sequence_til child completes without
+    marking. Caught one of my batch-2 runtime tests; the right
+    pattern is one mark_link per attempt, or wrap a multi-op attempt
+    in a column whose last leaf is a mark_link.
+
+  - **Sequence pass/fail does NOT terminate the parent.** A
+    `sequence_til_pass` whose all-False children fail the sequence
+    still DISABLEs cleanly, and the parent column sees DISABLE and
+    continues to the next sibling. Pass/fail is a recorded result,
+    not a flow-control signal. Authors who want "stop on fail" must
+    add an explicit downstream check (asm_verify reading the
+    sequence's mark, or similar).
+
+### Test status
+
+  - chain_tree: 136/136 still passing (independent).
+  - s_engine: 197/197 still passing (independent).
+  - template_language: 193/193 + 1 skipped (was 142 at end of Phase E;
+    +51 tests across batch 1 + batch 2 + this session's library work).
+
+### Library shape now
+
+  ```
+  composites.chain_tree.am_pm_state_machine    (Phase C — concrete demo)
+  composites.chain_tree.fire_in_window         (Phase E1 — simpler gate)
+  composites.chain_tree.state_machine          (batch 1 — generic SM)
+  composites.chain_tree.time_gate              (batch 1 — param'd gate)
+  composites.chain_tree.termination            (batch 1)
+  composites.chain_tree.container              (batch 1)
+  composites.chain_tree.try_till_pass          (batch 2)
+  composites.chain_tree.try_till_fail          (batch 2)
+  leaves.chain_tree.print_hello                (Phase E2)
+  leaves.chain_tree.mark_link                  (batch 2)
+
+  composites.s_engine.fire_in_window           (Phase E4)
+  leaves.s_engine.print_hello                  (Phase E2)
+  ```
+
+  The chain_tree side has 8 composites + 2 leaves; enough vocabulary
+  for the closed-loop LLM-composition demo (next session if pursued).
+  s_engine side still light — the engine asymmetry means s_engine
+  templates need their own design pass for state machines, sequences,
+  etc. Deferred until s_engine library demand surfaces.
+
+### Next steps (next session)
+
+  1. Optional: continue chain_tree library expansion. Candidate
+     shapes: supervisor wrappers, exception_handler wrapper,
+     wait-for-event, timeout-wrapper, retry-with-backoff. Drive by
+     real usage rather than completionism.
+
+  2. **Worked LLM-loop demo** — script that calls `list_template` +
+     `describe_template` + `validate_solution` against a real LLM,
+     building a solution from natural language. Half-day prototype
+     proves the closed loop end-to-end.
+
+  3. Phase F (DB layer) — still deferred per spec §16; lower
+     priority than the demo above.
+
+  4. **Architectural memo** for the template_language layer
+     (per `openclaw_research.md` §12). Connects implementation
+     decisions to the layered-invariants thesis. The most valuable
+     transferable artifact, per Glenn's inheritance framing.
+
+---
+
+---
+
 ## SESSION LOG — 2026-05-01: Phases A, B, C, D + lazy loader landed
 
 132/132 tests passing. The chain_tree side of the v1 acceptance gate is
