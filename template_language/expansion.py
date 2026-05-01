@@ -33,9 +33,8 @@ def _engine_methods(engine: str) -> set[str]:
     if engine == "chain_tree":
         return chain_tree_methods()
     if engine == "s_engine":
-        # Phase E will land the s_engine recorder; for now this engine is
-        # registerable but has no method surface.
-        return set()
+        from .recorder import s_engine_methods
+        return s_engine_methods()
     raise TemplateError(
         Codes.UNKNOWN_ENGINE,
         details={"engine": engine, "context": "expansion"},
@@ -122,10 +121,12 @@ def use_template(path: str, **slots) -> Optional[OpList]:
     nested = active is not None
     _push_recorder(recorder)
     try:
-        rt.fn(**final_kwargs)
+        body_return = rt.fn(**final_kwargs)
         recorder.finalize()
     finally:
         _pop_recorder(recorder)
+    if isinstance(body_return, RecRef):
+        recorder.op_list.body_return = body_return
 
     if nested:
         # Splice into the parent's op-list; merge global names so cross-
@@ -134,6 +135,10 @@ def use_template(path: str, **slots) -> Optional[OpList]:
         # parent is non-None here: we entered nested with an active recorder.
         parent.merge_global_names(recorder)
         parent.append_ops(recorder.op_list.ops)
-        return None
+        # s_engine pattern: the inner body returns its tree root as a
+        # RecRef; the parent passes that RecRef into its own dsl call as
+        # an arg. chain_tree pattern: bodies return None; this returns
+        # None too.
+        return recorder.op_list.body_return
 
     return recorder.op_list

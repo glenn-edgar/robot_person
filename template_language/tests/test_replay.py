@@ -115,10 +115,11 @@ def test_engine_dispatch_failed_for_unknown_engine():
     assert exc.value.code == Codes.ENGINE_DISPATCH_FAILED
 
 
-def test_engine_dispatch_se_engine_not_yet_implemented():
+def test_engine_dispatch_s_engine_rejects_kwargs():
+    """s_engine has no per-build constructor args; kwargs → ENGINE_DISPATCH_FAILED."""
     op_list = OpList(engine="s_engine", ops=[])
     with pytest.raises(TemplateError) as exc:
-        generate_code(op_list)
+        generate_code(op_list, tick_period=1.0)
     assert exc.value.code == Codes.ENGINE_DISPATCH_FAILED
 
 

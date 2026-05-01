@@ -62,77 +62,119 @@ class RecRef:
 class OpList:
     engine: str
     ops: list[Op] = field(default_factory=list)
+    # The body's return value, if it returned a RecRef. Used by engines
+    # whose template body shape is "return the root of the constructed
+    # tree" (s_engine). chain_tree templates' bodies typically return
+    # None; this stays None and replay returns the engine builder
+    # artifact instead.
+    body_return: Optional["RecRef"] = None
 
 
 # ----------------------------------------------------------------------
-# Method metadata per engine.
+# Per-engine recorder config.
 # ----------------------------------------------------------------------
 #
-# `_FRAME_OPENERS[method] = frame_kind` — calling pushes a frame; the
-#                                          frame_kind must match the suffix
-#                                          consumed by the corresponding closer.
-# `_FRAME_CLOSERS[method] = frame_kind` — calling pops a frame; raises
-#                                          recorder_stack_imbalance if the top
-#                                          frame's kind doesn't match.
-# `_NAME_NAMESPACE[method] = (namespace, scope, arg_index)` —
-#     namespace ∈ {"engine_fn","kb","sm","state","column"}
+# Each engine supplies its own frame openers/closers + name namespaces.
+# Engines without builder-style frame discipline (e.g. s_engine, which
+# is pure functional composition) supply empty dicts.
+#
+# `frame_openers[method] = frame_kind` — calling pushes a frame; the
+#                                         frame_kind must match the suffix
+#                                         consumed by the corresponding closer.
+# `frame_closers[method] = frame_kind` — calling pops a frame; raises
+#                                         recorder_stack_imbalance if the top
+#                                         frame's kind doesn't match.
+# `name_namespace[method] = (namespace, scope, arg_index, kw_name)` —
+#     namespace ∈ {"engine_fn","kb","sm","state","column",...}
 #     scope ∈ {"global","per_sm","per_frame"}
-#     arg_index — positional index of the name in the method's signature
-#                 (resolved against args first, then kwargs by parameter name).
-# `_NAME_KW[method] = kwarg_name` — fallback for kwarg lookup.
 
-# Frame openers/closers — stack discipline. The frame_kind is shared by
-# the opener and closer (so define_state_machine ↔ end_state_machine match).
-_FRAME_OPENERS: dict[str, str] = {
-    "start_test": "test",
-    "define_column": "column",
-    "define_state_machine": "state_machine",
-    "define_state": "state",
-    "define_se_tick": "se_tick",
-    "define_sequence_til_pass": "seq_pass",
-    "define_sequence_til_fail": "seq_fail",
-    "define_supervisor": "supervisor",
-    "define_supervisor_one_for_one": "supervisor",
-    "define_supervisor_one_for_all": "supervisor",
-    "define_supervisor_rest_for_all": "supervisor",
-    "define_exception_handler": "exception_handler",
-    "define_main_column": "main_column",
-    "define_recovery_column": "recovery_column",
-    "define_finalize_column": "finalize_column",
-    "define_controlled_server": "controlled_server",
+@dataclass
+class EngineConfig:
+    frame_openers: dict[str, str] = field(default_factory=dict)
+    frame_closers: dict[str, str] = field(default_factory=dict)
+    name_namespace: dict[str, tuple[str, str, int, str]] = field(default_factory=dict)
+    # Which name namespaces are global (collide across the whole recording)
+    # vs scoped (per_sm, per_frame). Used by merge_global_names at splice.
+    global_namespaces: tuple[str, ...] = ()
+
+
+_CHAIN_TREE_CONFIG = EngineConfig(
+    frame_openers={
+        "start_test": "test",
+        "define_column": "column",
+        "define_state_machine": "state_machine",
+        "define_state": "state",
+        "define_se_tick": "se_tick",
+        "define_sequence_til_pass": "seq_pass",
+        "define_sequence_til_fail": "seq_fail",
+        "define_supervisor": "supervisor",
+        "define_supervisor_one_for_one": "supervisor",
+        "define_supervisor_one_for_all": "supervisor",
+        "define_supervisor_rest_for_all": "supervisor",
+        "define_exception_handler": "exception_handler",
+        "define_main_column": "main_column",
+        "define_recovery_column": "recovery_column",
+        "define_finalize_column": "finalize_column",
+        "define_controlled_server": "controlled_server",
+    },
+    frame_closers={
+        "end_test": "test",
+        "end_column": "column",
+        "end_state_machine": "state_machine",
+        "end_state": "state",
+        "end_se_tick": "se_tick",
+        "end_sequence_til_pass": "seq_pass",
+        "end_sequence_til_fail": "seq_fail",
+        "end_supervisor": "supervisor",
+        "end_exception_handler": "exception_handler",
+        "end_main_column": "main_column",
+        "end_recovery_column": "recovery_column",
+        "end_finalize_column": "finalize_column",
+        "end_controlled_server": "controlled_server",
+    },
+    name_namespace={
+        "add_main":              ("engine_fn", "global", 0, "name"),
+        "add_boolean":           ("engine_fn", "global", 0, "name"),
+        "add_one_shot":          ("engine_fn", "global", 0, "name"),
+        "add_se_main":           ("engine_fn", "global", 0, "name"),
+        "add_se_pred":           ("engine_fn", "global", 0, "name"),
+        "add_se_one_shot":       ("engine_fn", "global", 0, "name"),
+        "add_se_io_one_shot":    ("engine_fn", "global", 0, "name"),
+        "start_test":            ("kb",        "global", 0, "name"),
+        "define_state_machine":  ("sm",        "global", 0, "name"),
+        "define_state":          ("state",     "per_sm", 0, "state_name"),
+        "define_column":         ("column",    "per_frame", 0, "name"),
+    },
+    global_namespaces=("engine_fn", "kb", "sm"),
+)
+
+
+# s_engine is pure functional composition (every se_dsl primitive returns
+# a dict; trees are built bottom-up via call args). No frame discipline,
+# no name registrations to enforce — the recorder just records calls and
+# returns RecRefs. Replay walks ops in order and substitutes RecRefs.
+_S_ENGINE_CONFIG = EngineConfig(
+    frame_openers={},
+    frame_closers={},
+    name_namespace={},
+    global_namespaces=(),
+)
+
+
+_ENGINE_CONFIGS: dict[str, EngineConfig] = {
+    "chain_tree": _CHAIN_TREE_CONFIG,
+    "s_engine":   _S_ENGINE_CONFIG,
 }
 
-_FRAME_CLOSERS: dict[str, str] = {
-    "end_test": "test",
-    "end_column": "column",
-    "end_state_machine": "state_machine",
-    "end_state": "state",
-    "end_se_tick": "se_tick",
-    "end_sequence_til_pass": "seq_pass",
-    "end_sequence_til_fail": "seq_fail",
-    "end_supervisor": "supervisor",
-    "end_exception_handler": "exception_handler",
-    "end_main_column": "main_column",
-    "end_recovery_column": "recovery_column",
-    "end_finalize_column": "finalize_column",
-    "end_controlled_server": "controlled_server",
-}
 
-# Per-namespace name tracking — see template_design.txt §9.
-# (namespace, scope, arg_index, kw_name)
-_NAME_NAMESPACE: dict[str, tuple[str, str, int, str]] = {
-    "add_main":              ("engine_fn", "global", 0, "name"),
-    "add_boolean":           ("engine_fn", "global", 0, "name"),
-    "add_one_shot":          ("engine_fn", "global", 0, "name"),
-    "add_se_main":           ("engine_fn", "global", 0, "name"),
-    "add_se_pred":           ("engine_fn", "global", 0, "name"),
-    "add_se_one_shot":       ("engine_fn", "global", 0, "name"),
-    "add_se_io_one_shot":    ("engine_fn", "global", 0, "name"),
-    "start_test":            ("kb",        "global", 0, "name"),
-    "define_state_machine":  ("sm",        "global", 0, "name"),
-    "define_state":          ("state",     "per_sm", 0, "state_name"),
-    "define_column":         ("column",    "per_frame", 0, "name"),
-}
+def engine_config(engine: str) -> EngineConfig:
+    cfg = _ENGINE_CONFIGS.get(engine)
+    if cfg is None:
+        raise TemplateError(
+            Codes.UNKNOWN_ENGINE,
+            details={"engine": engine, "context": "recorder.engine_config"},
+        )
+    return cfg
 
 
 # ----------------------------------------------------------------------
@@ -176,12 +218,11 @@ class Recorder:
         self.engine = engine
         self.template_path = template_path
         self.valid_methods = valid_methods
+        self.config = engine_config(engine)
         self.op_list = OpList(engine=engine)
         self._frames: list[dict] = []
         self._global_names: dict[str, set[str]] = {
-            "engine_fn": set(),
-            "kb": set(),
-            "sm": set(),
+            ns: set() for ns in self.config.global_namespaces
         }
         # per_frame name sets attach to whichever frame is on top at the
         # call site; we store them inside the frame dict.
@@ -233,6 +274,11 @@ class Recorder:
         with names recorded by the child. Per-frame and per-sm names are
         scoped and do not cross template boundaries."""
         for ns, names in other._global_names.items():
+            if ns not in self._global_names:
+                # Engines with disjoint global namespaces (shouldn't happen
+                # in practice — both children and parent share the engine —
+                # but defensive against future engine variants).
+                continue
             existing = self._global_names[ns]
             collisions = existing & names
             if collisions:
@@ -259,15 +305,16 @@ class Recorder:
 
     def _record(self, method: str, args: tuple, kwargs: dict,
                 out_ref: "RecRef") -> None:
+        cfg = self.config
         # 1) frame discipline
-        if method in _FRAME_OPENERS:
+        if method in cfg.frame_openers:
             self._frames.append({
-                "kind": _FRAME_OPENERS[method],
+                "kind": cfg.frame_openers[method],
                 "method": method,
                 "per_frame_names": {"column": set()},
             })
-        elif method in _FRAME_CLOSERS:
-            expected = _FRAME_CLOSERS[method]
+        elif method in cfg.frame_closers:
+            expected = cfg.frame_closers[method]
             if not self._frames:
                 raise TemplateError(
                     Codes.RECORDER_STACK_IMBALANCE,
@@ -289,8 +336,8 @@ class Recorder:
         #    look up against the right frame; opener pushes its own frame
         #    BEFORE we record its name claim, but the name belongs to the
         #    enclosing scope — handle below by indexing from -2 when needed.)
-        if method in _NAME_NAMESPACE:
-            ns, scope, arg_idx, kw_name = _NAME_NAMESPACE[method]
+        if method in cfg.name_namespace:
+            ns, scope, arg_idx, kw_name = cfg.name_namespace[method]
             name = self._extract_name(method, args, kwargs, arg_idx, kw_name)
             self._claim_name(method, ns, scope, name)
 
@@ -396,3 +443,15 @@ def chain_tree_methods() -> set[str]:
     """Lazy import + introspect ChainTree's public method surface."""
     from ct_dsl import ChainTree
     return _public_methods(ChainTree)
+
+
+def s_engine_methods() -> set[str]:
+    """Lazy import + read s_engine's DSL surface from se_dsl.__all__.
+
+    s_engine doesn't have a builder class — DSL primitives are
+    module-level functions returning node dicts. The recorder shadows
+    every name in se_dsl.__all__ except `make_node` (template authors
+    use the higher-level primitives).
+    """
+    import se_dsl
+    return {name for name in se_dsl.__all__ if name != "make_node"}
