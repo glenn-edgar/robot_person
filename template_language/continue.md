@@ -1,3 +1,150 @@
+# Template Language — Design State (2026-04-30 design / 2026-05-01 implementation)
+
+---
+
+## SESSION LOG — 2026-05-01: Phases A, B, C, D + lazy loader landed
+
+132/132 tests passing. The chain_tree side of the v1 acceptance gate is
+green: `am_pm_state_machine` round-trips define → use → generate → run
+across multiple ticks (initial state dispatches via wall clock, AM/PM
+state runs its action on the next tick) for both AM and PM clock
+fixtures. All five Phase D verbs plus `op_list_to_python` /
+`op_list_to_json` and the lazy-import loader are in place.
+
+### What landed
+
+  - **kinds.py** — `Kind` enum (16 kinds), `annotation_to_kind` (handles
+    `Optional[X]`, PEP 604 `X | None`, bare types, `Callable`),
+    `validate_value_against_kind` (RecRef class injected to break a
+    circular import).
+  - **errors.py** — `TemplateError` with `code/stage/template_stack/
+    details/to_dict()`, stage auto-lookup from code, `Codes` constants.
+  - **recorder.py** — `Op` (with `out_ref` field — see Spec deviations),
+    `RecRef` (opaque, integer-id, hashable), `OpList`, `Recorder` with
+    `__getattr__` shim that records and returns RecRef. Frame discipline
+    by suffix matching (`define_X` / `start_X` push kind=X, `end_X`
+    pops). Five name namespaces enforced: engine_fn / kb / sm (global),
+    state (per-SM frame), column (per-frame). Module-level
+    `_recorder_stack` plus `merge_global_names` for splice-time
+    cross-template collision detection.
+  - **ct.py** — `_CtProxy.__getattr__` resolves to active recorder;
+    raises `ct_used_outside_template` on empty stack.
+  - **registry.py** — `Slot`, `RegisteredTemplate`, `define_template`
+    using `inspect.signature(eval_str=True)` to resolve PEP 563 lazy
+    annotations. `clear_registry` test helper, `list_paths` helper.
+  - **expansion.py** — `use_template`. Cross-engine check before slot
+    validation. Outermost call returns `OpList`; nested returns `None`
+    after splicing the inner op-list and merging the inner's global
+    name claims into the parent's registries.
+  - **replay.py** — `generate_code` dispatches on `op_list.engine`,
+    walks ops, recursively substitutes RecRefs in args / kwargs / dicts /
+    lists / tuples via `id(out_ref) → real_return` map. Wraps engine
+    exceptions in `replay_op_failed` with `template_stack` from
+    `op.source`.
+  - **conftest.py** — adds parent dir + `chain_tree` to sys.path
+    (matches chain_tree's own conftest convention).
+  - **templates/composites/chain_tree/am_pm_state_machine.py** — the
+    first real template. The DECIDE one-shot reads
+    `handle["engine"]["get_wall_time"]()` and posts
+    `CFL_CHANGE_STATE_EVENT` directly via `enqueue` + `make_event`.
+  - **validation.py** — `validate_solution(path, **slots)` wraps
+    `use_template + generate_code` in try/except and returns either
+    `{"ok": True}` or `{"ok": False, **error.to_dict()}`. The LLM
+    closed-loop verb (§12.6).
+  - **render.py** — `op_list_to_python(op_list, builder_name="chain")`
+    pretty-prints the op-list as Python source with frame indentation
+    and RecRef-as-variable-name rewriting; `op_list_to_json(op_list)`
+    produces a JSON-safe dump (callables and RecRefs become opaque
+    markers). One-way per §2.
+  - **registry.py lazy loader** — `get_template(path)` falls back to
+    `importlib.import_module("template_language.templates." + path)`
+    on registry miss. If the module is already cached but the path
+    isn't in the registry (registry was cleared), the loader evicts
+    from `sys.modules` and re-imports so the top-level
+    `define_template(...)` runs again. `load_all()` walks
+    `templates/` via `pkgutil` for bulk imports.
+  - **conftest.py** — autouse `_clean_registry` fixture clears the
+    registry before+after each test. Always-on templates are no longer
+    hardcoded in conftest; the lazy loader handles them on demand.
+  - **12 test files** under `tests/`. Coverage: 18 of 20 error codes
+    raised by at least one test.
+
+### Spec deviations / gaps discovered while implementing
+
+  1. **Code-count discrepancy.** `template_design.txt` §0, §10, and §17
+     repeatedly say "21 codes," but §10.1 + §10.2 + §10.3 enumerate
+     **20** (7 + 10 + 3). Aligned implementation to the enumeration.
+     The `assert len(ALL_CODES) == 20` in `errors.py` has a comment
+     pointing at this. **Reconciliation TODO**: either edit the spec to
+     "20 codes" everywhere, or add a 21st code. No good candidates for
+     a 21st leap to mind — the categories already feel complete.
+
+  2. **§13.2 example is unrunnable.** The "solution that uses it"
+     snippet calls `chain.run(starting=["time_of_day_sm"])` as if
+     `sm_name` were a KB name. It isn't — `define_state_machine`
+     requires a parent frame, so the SM template alone never opens a
+     KB. Solutions need a separate KB-bracketing wrapper template that
+     does `start_test(...)` + `use_template("...sm...")` +
+     `end_test()`. The acceptance test demonstrates this pattern (see
+     `_build_am_pm_solution` in `tests/test_am_pm_template.py`).
+     **Spec edit needed**: replace §13.2 with a wrapping solution
+     template, or add an explicit "solution wrapper" pattern in §8.
+
+  3. **`Op.out_ref` was unspec'd.** Phase 2 needs to map the RecRef
+     returned at recording time to the real builder return value. The
+     spec describes this conceptually (§3, §5.4) but doesn't say where
+     the RecRef lives. Implementation puts it on each `Op` as
+     `out_ref: Optional[RecRef]`; replay does `refs[id(op.out_ref)] =
+     real_return`. **Spec edit needed**: add the field to the Op
+     dataclass sketch in §3.
+
+  4. **Slot kind for `start_test` etc. — none.** The spec's §5.5
+     signature constraints don't say what kind to give first-positional
+     arg name parameters in builder-shadow methods. Not a bug for v1
+     (recorder operates on raw args/kwargs, doesn't validate names'
+     types), but worth a note: name args are always strings in
+     practice, no special kind needed.
+
+### Test status
+
+  - chain_tree: 136/136 still passing (independent).
+  - s_engine: 197/197 still passing (independent).
+  - template_language: 132/132.
+  - The engine-side `time_window` change from §3 is **already
+    committed** (86afab1: "chain_tree + s_engine: time-window wait
+    leaves and predicate"). Earlier notes saying it was uncommitted
+    were wrong.
+
+### Next steps (next session, in this order)
+
+  1. **E1**: `fire_in_window` for chain_tree. Read
+     `chain_tree/ct_builtins/controlled.py` first; design the
+     "gate-a-column-on-a-blackboard-bool" idiom.
+  2. **E2**: `print_hello` leaves for both engines (trivial fillers
+     for `templates/leaves/`).
+  3. **E3**: s_engine recorder. Per `feedback_engine_independence`,
+     design to s_engine's own machinery, not a chain_tree mirror —
+     `_FRAME_OPENERS`, `_FRAME_CLOSERS`, `_NAME_NAMESPACE` will look
+     different.
+  4. **E4**: `fire_in_window` for s_engine. Distinct ltree path.
+  5. **F**: DB layer — deferred per §16.
+
+### Patterns established this session
+
+  - **Lazy loader convention.** A template registered at ltree path
+    `composites.chain_tree.foo` lives in
+    `template_language/templates/composites/chain_tree/foo.py`. The
+    lazy loader resolves on first `use_template` / `describe_template`
+    call. Authors who deviate get `unknown_template` until they fix
+    the file.
+  - **Test fixture coexistence.** Conftest's autouse
+    `_clean_registry` fixture coexists with per-file `_clean` fixtures
+    that also clear; both run, the global runs first (outer), the
+    local runs inside it. No test snapshot/restore is needed — the
+    lazy loader repopulates always-on templates on demand.
+
+---
+
 # Template Language — Design State (2026-04-30, locked)
 
 A two-phase template system over s_engine and chain_tree. Templates are
