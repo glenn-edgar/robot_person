@@ -1,0 +1,1159 @@
+# Template Language — Design (2026-04-30, locked)
+
+A two-phase template system over `chain_tree` and `s_engine`. Templates are
+plain Python functions whose keyword-only parameters are slots. Phase 1 runs
+the body against a Recorder, producing an op-list of `(method, args, kwargs)`
+records. Phase 2 replays the op-list against the real engine builder. The
+template engine is build-time only — once `generate_code` returns the engine's
+build artifact, it is an ordinary `chain_tree`/`s_engine` object and the
+template system has no further role.
+
+This file is the single authoritative spec for the template engine. It
+supersedes the v1 "pidgin Python via AST" sketch (rejected) and the chain_tree
+slot-asymmetry discussion in `continue.md` §5 (resolved by this design).
+`continue.md` retains the storage / DB-registry plan; everything else here
+takes precedence over older notes.
+
+----------------------------------------------------------------------
+0. Status and how to read this document
+----------------------------------------------------------------------
+
+The decisions below were locked in the 2026-04-30 design session and are
+ready to implement. Sections marked **[deferred]** or **[open]** are
+explicitly *not* locked; everything else is.
+
+Reading order for a new contributor:
+  §1 Two-phase model — the central idea
+  §2 Why not text substitution — the rejected alternative
+  §3 Recorder + `ct` proxy — the phase-1 mechanism
+  §4 Engine identity — single-engine templates, no mixing
+  §5 Slot semantics — kinds, signature-as-schema, RecRefs
+  §6 User-fn registration — closures, the C++ analogy
+  §7 Templates calling templates — composition
+  §8 Everything is a template — leaf/composite/solution uniformity
+  §9 Hard-error rule — no silent collision resolution
+  §10 Error vocabulary — 21 codes, single TemplateError class
+  §11 Invariant boundary — what's checked where
+  §12 The verbs — five-verb API
+  §13 Worked example — am_pm_state_machine end-to-end
+  §14 File layout — directory structure and conventions
+  §15 LLM composition — discovery + dry-run loop
+  §16 Storage — DB plan (deferred to continue.md)
+  §17 Implementation plan — next session's tasks
+  §18 Open items / deferred — what we explicitly haven't decided
+
+----------------------------------------------------------------------
+1. The two-phase model
+----------------------------------------------------------------------
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ Phase 1 — expansion / recording                                  │
+  │ ──────────────────────────────                                   │
+  │ use_template(path, **slots) runs the registered template body    │
+  │ with `ct` bound to a Recorder. Every ct.method(...) call is      │
+  │ appended to the recorder's op-list as Op(method, args, kwargs,   │
+  │ source). Author-time `if`s collapse here. Nested use_template    │
+  │ calls splice into the same op-list. Returns the OpList.          │
+  └──────────────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+                  OpList(engine: str, ops: list[Op])
+                                 │
+                                 ▼
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ Phase 2 — replay                                                 │
+  │ ─────────────────                                                │
+  │ generate_code(op_list, **chain_kwargs) constructs the engine's   │
+  │ real builder (ChainTree for "chain_tree", an s_engine builder    │
+  │ for "s_engine"), walks ops in order, dispatches each to the      │
+  │ matching builder method. Resolves RecRefs as it goes. Returns    │
+  │ the engine-native build artifact.                                │
+  └──────────────────────────────────────────────────────────────────┘
+
+The op-list is the only intermediate. No text, no AST, no Python source
+generation. `generate_code` does not produce Python source — the verb is
+named for the user's mental model; mechanically it drives the real
+builder. After `generate_code` returns, the template system has no
+further role; the result is an ordinary `chain_tree`/`s_engine` object,
+indistinguishable from a hand-authored one.
+
+`generate_code` returns *just the build artifact* — no metadata, no
+struct, no list of KB names. KB introspection, run-time activation, and
+all subsequent lifecycle are the engine's own API surface. The template
+engine does not pollute the runtime.
+
+----------------------------------------------------------------------
+2. Why not text substitution
+----------------------------------------------------------------------
+
+A v1 sketch expanded templates to Python source text and `exec()`d the
+result. It was rejected because text-as-intermediate carries five
+compounding taxes:
+
+  1. Quoting — every interpolation needs `repr()`; values like callables
+     and datetimes don't round-trip cleanly. One missed `repr()` → a
+     SyntaxError in a generated string with a useless traceback.
+  2. Indentation — Python is whitespace-sensitive. Splicing a multi-line
+     child fragment into a parent's `if:` block requires re-indenting at
+     splice time, and every author has to remember the helper.
+  3. Identifier collisions — two instantiations of the same template
+     each emit `sm = chain.define_state_machine(...)`. Gensym needed.
+  4. Tracebacks point at the generated string, not the template source.
+  5. Callable slots cannot survive the text boundary. Either every
+     callable slot is a string name (too restrictive) or templates use
+     `inspect.getsource` (fragile, only works for top-level defs).
+
+The op-list intermediate sidesteps all five. Live Python callables ride
+through unchanged from phase 1 to phase 2 — closures with captured slot
+values stay intact. This is what makes "template-instance closures"
+(§6) viable.
+
+If a human-readable Python-source artifact is wanted later (DB review,
+LLM display, audit logs), it can be rendered *from* the op-list as a
+one-way pretty-print (`op_list_to_python(op_list, builder_name="chain")`).
+Never parsed back. Failure modes stay on the output side, not on the
+authoring side.
+
+----------------------------------------------------------------------
+3. The Recorder and the `ct` proxy
+----------------------------------------------------------------------
+
+**The Recorder** is a class that exposes the same public method surface
+as the engine's builder (every `define_*`, `end_*`, `asm_*`, `add_*`,
+`start_test`, etc.). Each method appends one Op:
+
+    @dataclass
+    class Op:
+        method: str
+        args: tuple
+        kwargs: dict
+        source: list[str]      # template-path stack at recording time
+
+The `source` field is a snapshot of the recorder stack at the moment of
+recording. It enables replay-time errors to point at the template that
+emitted the failing op, even three levels deep.
+
+The Recorder also maintains a parallel **shadow stack** that mirrors
+the engine builder's frame discipline — every `define_*` pushes,
+`end_*` pops, mismatch raises immediately at the offending call.
+
+Returns from recorder methods that produce engine refs (e.g.
+`define_state_machine`) are **opaque RecRef sentinels**. The Recorder
+records the RecRef in op args; phase 2 maintains a `RecRef → real-node`
+map and substitutes during replay.
+
+**The `ct` proxy** is a module-level object that resolves to the active
+Recorder via a module-level stack:
+
+    # template_language/recorder.py (sketch)
+    _recorder_stack: list[Recorder] = []
+
+    def _active() -> Recorder | None:
+        return _recorder_stack[-1] if _recorder_stack else None
+
+    class _CtProxy:
+        def __getattr__(self, name):
+            rec = _active()
+            if rec is None:
+                raise TemplateError(code="ct_used_outside_template",
+                                    stage="expansion", details={"method": name})
+            return getattr(rec, name)
+
+    ct = _CtProxy()
+
+The stack is plain Python list, **not a contextvar**. This matches
+chain_tree's single-context discipline (one build, one runtime, no
+threading). Sequential builds reset the stack to empty between calls;
+nested `use_template` push/pop within one build.
+
+**`ct.*` outside any template raises `ct_used_outside_template`**. The
+proxy is exclusively for template-body authoring; hand-authored
+construction uses `chain = ChainTree(); chain.foo()` directly without
+ever touching the proxy.
+
+----------------------------------------------------------------------
+4. Engine identity
+----------------------------------------------------------------------
+
+**Every template targets exactly one engine.** `define_template` takes
+a singular `engine="chain_tree"` or `engine="s_engine"`. No template
+mixes engines internally; no `if engine == "..."` branching in template
+bodies. Same logical template name targeting both engines is registered
+at two distinct ltree paths (`composites.chain_tree.X` and
+`composites.s_engine.X`) with separate bodies.
+
+**The op-list carries the engine tag.** When `use_template` allocates
+a Recorder, the Recorder is tagged with the registered template's
+engine. The resulting OpList carries that tag forward:
+
+    @dataclass
+    class OpList:
+        engine: str            # "chain_tree" | "s_engine"
+        ops: list[Op]
+
+`generate_code(op_list)` dispatches on `op_list.engine` to construct the
+right builder and replay. Caller passes nothing extra; engine flows
+from registration → recording → op-list → replay as a single source of
+truth.
+
+**Cross-engine composition is structurally rejected.** When
+`use_template` is called from inside an active recorder, the inner
+template's engine is compared to the active recorder's engine.
+Mismatch raises `cross_engine_composition` at the offending
+`use_template` call, before the inner body runs. Fail-early at
+expansion, never reaches `generate_code`.
+
+**Bridges are NOT cross-engine composition.** chain_tree's
+`add_se_main`, `add_se_pred`, `add_se_one_shot`, `add_se_io_one_shot`
+are chain_tree builder methods that accept a Python callable. The
+callable internally drives a *separately-built, already-completed*
+s_engine tree. The template engine has no concept of "a bridge" —
+`add_se_*` is just an ordinary recorder op with a callable in its args.
+
+The bridging pattern lives at the user's solution level, between two
+single-engine builds:
+
+    # 1) Build the s_engine tree first.
+    se_op_list = use_template("solutions.s_engine.market_logic", **se_slots)
+    se_root    = generate_code(se_op_list)
+    se_handle  = se_runtime.make_chain_callable(se_root)
+
+    # 2) Build the chain_tree, passing the handle as a slot.
+    ct_op_list = use_template(
+        "solutions.chain_tree.shift_dispatcher",
+        se_handler = se_handle,
+        **ct_slots,
+    )
+    chain = generate_code(ct_op_list)
+    chain.run(starting=["shift_dispatcher"])
+
+Two separate single-engine builds, one Python value flowing between
+them as ordinary slot data. Inside the chain_tree template body:
+
+    def shift_dispatcher(*, se_handler, ...):
+        ct.add_se_main("MARKET_TICK", se_handler)   # ordinary recorder op
+        ...
+
+Phase 1 records `("add_se_main", ("MARKET_TICK", se_handler), {})` with
+the live callable. Phase 2 hands it to `chain.add_se_main`. No engine
+boundary is crossed inside the recording.
+
+----------------------------------------------------------------------
+5. Slot semantics
+----------------------------------------------------------------------
+
+### 5.1 Signature-as-schema
+
+A template's parameters *are* its slots. `define_template` introspects
+the function signature once at registration via `inspect.signature` and
+stores the schema. Authors do not redundantly declare slots in metadata.
+
+  - Bare parameter (no default)            → required slot
+  - Parameter with default                 → optional slot, default captured
+  - Type annotation (if present)           → slot kind (per §5.2)
+  - Docstring                              → fallback for `describe=`
+
+`describe_template` returns this schema as structured JSON for LLM
+discovery (§15).
+
+### 5.2 Slot kinds
+
+A small fixed kind vocabulary. Annotations map to kinds; unrecognized
+or absent annotations → `ANY` (no kind check).
+
+  STRING                STRING-typed scalar
+  INT                   integer scalar
+  FLOAT                 float scalar
+  BOOL                  bool scalar
+  DICT                  dict (no nested validation)
+  LIST                  list (no element-type validation)
+  RECREF                a RecRef produced by a recorder method
+  ACTION                zero-arg or one-arg callable; body invokes it,
+                        ops splice into parent op-list
+  ENGINE_MAIN           `(rt, data) -> control_return` — chain_tree main
+  ENGINE_BOOLEAN        `(rt, data) -> bool` — chain_tree boolean
+  ENGINE_ONE_SHOT       chain_tree one-shot fn
+  ENGINE_SE_MAIN        s_engine main (used by chain_tree's add_se_main)
+  ENGINE_SE_PRED        s_engine predicate
+  ENGINE_SE_ONE_SHOT    s_engine one-shot
+  ENGINE_SE_IO_ONE_SHOT s_engine I/O one-shot
+  ANY                   no validation (escape hatch; discouraged)
+
+Engine-fn signature contracts (`(rt, data) -> ...`) are documented per
+kind so LLMs know what to write. Validation at runtime checks that the
+slot value is a callable; signature shape is documented but not
+enforced (Python's `inspect.signature` on lambdas/partials is too
+unreliable to enforce strictly).
+
+### 5.3 Nullability
+
+Nullability is a **slot attribute, not a kind**. An annotation of
+`Optional[X]` or `X | None` produces `kind=X, nullable=True`. A bare
+`X` produces `kind=X, nullable=False`. Validation:
+
+  - Non-nullable slot, value `None`        → `slot_null_not_allowed`
+  - Nullable slot, value `None`            → passes
+  - Any slot, value matching kind          → passes
+  - Any slot, value not matching kind      → `slot_kind_mismatch`
+
+Authors use `None` as "slot unset" for optional callable slots:
+
+    def template(*, morning_action: Optional[Callable] = None):
+        if morning_action is not None:
+            morning_action()
+
+The `if` collapses at expansion; no op is recorded if the slot is None.
+
+### 5.4 RecRefs
+
+`RecRef` is an opaque sentinel returned by recorder methods that
+produce engine-side refs (`define_state_machine`, `define_state` if
+needed, etc.). Authors stash and pass them as slot values:
+
+    def parent(*, am_action, pm_action):
+        sm = ct.define_state_machine("x",
+                state_names=["am", "pm"], initial_state="am")
+        use_template("composites.chain_tree.transition",
+                     sm=sm, target="am", action=am_action)
+        use_template("composites.chain_tree.transition",
+                     sm=sm, target="pm", action=pm_action)
+        ct.end_state_machine()
+
+Phase 2 maintains a `RecRef → real_node` map. As each recorder method
+returns a real ref, the RecRef from the corresponding phase-1 call is
+mapped to it. Subsequent ops with that RecRef in their args/kwargs get
+substituted before dispatch.
+
+### 5.5 Signature constraints (registration-time validation)
+
+  - All parameters must be **keyword-only** (`def f(*, ...):`).
+    Positional-or-keyword params raise `bad_signature_positional_param`.
+  - **No `*args`, no `**kwargs`.** Templates declare explicit slots.
+    Variadic params raise `bad_signature_var_args`.
+  - **Annotations must map to known kinds.** Unknown annotation raises
+    `unknown_slot_kind` at registration.
+  - **Defaults must satisfy their kind.** A `key: STRING = 42` raises
+    `default_kind_mismatch`.
+
+----------------------------------------------------------------------
+6. User-fn registration — template-instance closures
+----------------------------------------------------------------------
+
+User functions (those registered via `add_main`, `add_boolean`,
+`add_one_shot`, `add_se_*`) are Python callables that run at engine
+tick time. They are recorded as ordinary ops in phase 1; phase 2
+hands them unchanged to the real builder. The op-list carries the
+live callable through; no serialization, no name-only references.
+
+**The C++ analogy.** Closure-over-slots is to Python templates what
+type substitution is to C++ templates: each instantiation produces a
+distinct entity (a closure with captured values, vs a compiled
+function with substituted types) that shares one source body. Same
+behavior parameterization, achieved via Python's first-class function
+machinery rather than codegen.
+
+  | C++ templates                | Python templates (this design)       |
+  |------------------------------|--------------------------------------|
+  | `<T>` substituted at compile | slot captured by closure at expansion|
+  | Each inst. → distinct code   | Each inst. → distinct closure object |
+  | Linker enforces names        | Recorder enforces names (hard-error) |
+  | Specialization               | Python `if`/loops at expansion       |
+
+**Three idiomatic places to define the fn:**
+
+  1. **Inline closure inside the body.** Captures slot values. The
+     killer pattern.
+
+         def am_pm_state_machine(*, sm_name, ...):
+             def _decide(rt, data):
+                 hour = rt.wall_clock().hour
+                 rt.post_change_state(data["sm"], "am" if hour < 12 else "pm")
+             ct.add_one_shot(f"{sm_name}_DECIDE", _decide)
+
+     Each instantiation produces its own `_decide` with its own
+     `sm_name`-flavored registration. Two instantiations → two
+     closures under two slot-derived names → no collision.
+
+  2. **Module-level fn referenced from the body.** When the logic
+     does not depend on slots, the fn is defined at module top-level
+     and the body registers it under a (slot-derived) name.
+
+  3. **Passed in as a callable slot.** Caller injects the fn:
+
+         def my_template(*, decide_fn: ENGINE_ONE_SHOT, sm_name):
+             ct.add_one_shot(f"{sm_name}_DECIDE", decide_fn)
+
+**Naming discipline (load-bearing).** All registered names that
+depend on the call site must be derived from a slot. A template that
+hardcodes `"AM_PM_DECIDE"` collides with itself the moment it is
+instantiated twice. Templates use slot values as the source of
+uniqueness:
+
+    f"{sm_name}_DECIDE"
+    f"{prefix}_LOG"
+    f"{kb_name}_TICK"
+
+Recorder catches violations at the second `add_*` call with
+`duplicate_name_in_recording`. No silent overwrite (§9).
+
+**Pitfalls authors must know about:**
+
+  1. **Late binding in loops.** `for k in keys: fns.append(lambda r,d: handle(r,k))`
+     — all lambdas close over the same `k` (final value). Fix:
+     `lambda r, d, k=k: handle(r, k)`.
+  2. **Mutable captures shared across calls.** Closures capture
+     references; mutating a captured list at tick time accumulates.
+     Convention: closures read captures, don't mutate them.
+  3. **Closures aren't picklable.** Reinforces "op-lists are in-process
+     only" — never serialize op-lists to disk.
+
+----------------------------------------------------------------------
+7. Templates calling templates
+----------------------------------------------------------------------
+
+Two patterns. Both work without new framework mechanism.
+
+### 7.1 Pattern A — callable wrapping `use_template` (canonical)
+
+The slot is `ACTION`. The caller wraps the child instantiation in a
+zero-arg lambda. When the parent body invokes the slot, the lambda
+runs `use_template(child)`, which splices the child's ops into the
+parent's op-list at that point.
+
+    use_template(
+        "composites.chain_tree.fire_in_window",
+        start={"hour": 9}, end={"hour": 16},
+        body=lambda: use_template(
+            "composites.chain_tree.am_pm_state_machine",
+            sm_name="market_clock",
+            morning_action=lambda: ct.asm_log_message("am"),
+            afternoon_action=lambda: ct.asm_log_message("pm"),
+        ),
+    )
+
+The same callable can be passed to multiple slots; each invocation
+re-splices independently.
+
+### 7.2 Pattern B — path + slots-dict (caller picks the template)
+
+When the parent template is generic over which child to attach (a
+wrapper, an interceptor, a retry):
+
+    def with_logging(*, label, target_template: STRING, target_slots: DICT):
+        ct.asm_log_message(f"enter:{label}")
+        use_template(target_template, **target_slots)
+        ct.asm_log_message(f"exit:{label}")
+
+Pure data on the wire (string + dict), except where the child needs
+callable slots — those still ride inside `target_slots` as Python
+callables. Useful for higher-order templates; LLM-friendly when slots
+are scalar.
+
+### 7.3 Return semantics inside a recording
+
+`use_template` called from inside an active recorder returns `None`
+(its ops are already spliced; the parent has no use for the op-list).
+At the outermost call (empty recorder stack on entry), returns the
+`OpList`. Implementation: `return None if len(stack) > 1 else OpList(...)`.
+
+### 7.4 RecRefs cross template boundaries
+
+When a parent opens a state machine and wants two sub-templates to
+operate on it, the parent passes the RecRef as a slot:
+
+    def parent(*, am_action, pm_action):
+        sm = ct.define_state_machine("x", state_names=[...], initial_state="x")
+        use_template("...transition", sm=sm, target="am", action=am_action)
+        use_template("...transition", sm=sm, target="pm", action=pm_action)
+        ct.end_state_machine()
+
+The RecRef is just a slot value with kind `RECREF`. Phase 2 resolves
+it once at the parent's `define_state_machine` call and substitutes
+in all later ops that reference it.
+
+----------------------------------------------------------------------
+8. Everything is a template
+----------------------------------------------------------------------
+
+Three "kinds" — leaf, composite, solution — are conventions, not
+distinct mechanisms:
+
+  - **leaf**       body emits one or a small number of `asm_*` ops; 0–2 slots
+  - **composite**  body emits a sequence; calls nested templates; many slots
+  - **solution**   body brackets `start_test(...)` / `end_test(...)`;
+                   no slots; builds a complete KB
+
+All three:
+  - Stored in the same registry indexed by ltree path.
+  - Invoked via `use_template(path, **slots)`.
+  - Produce op-lists.
+  - Replayed by `generate_code`.
+
+The `kind` label remains useful as a SQL filter — `list_template(kind="solution")`
+answers "what KBs can I run?" — but it is metadata, not structure.
+
+A solution template that opens its own KB is the natural unit of "a
+runnable thing." A solution composing multiple sub-solutions (which
+each call `start_test`) yields a chain with multiple KBs and is
+allowed; chain_tree's `run(starting=[...])` already takes a list.
+
+----------------------------------------------------------------------
+9. Hard-error rule for collisions
+----------------------------------------------------------------------
+
+**Project rule, no exceptions.** No name collision is ever silently
+resolved. Not "last wins," not "first wins," not "merge if compatible."
+Every collision raises at the offending call site. Author must
+restructure or rename. Force fix.
+
+The categories that hard-error:
+
+  | Namespace                            | Raised by         | Code                       |
+  |--------------------------------------|-------------------|----------------------------|
+  | Engine-fn registry name (add_main /  | recorder, on the  | duplicate_name_in_recording|
+  |  add_boolean / add_one_shot / add_se*| second add_* op   |                            |
+  | KB name (start_test)                 | recorder          | duplicate_name_in_recording|
+  | State machine name                   | recorder          | duplicate_name_in_recording|
+  | State name within an SM              | recorder          | duplicate_name_in_recording|
+  | Column name within a frame           | recorder          | duplicate_name_in_recording|
+  | Caller-passed slot name not in       | use_template      | unknown_slot               |
+  |  schema                              |                   |                            |
+  | Same slot key passed twice           | Python (TypeError)| —                          |
+  | Template path registered twice       | define_template   | duplicate_path             |
+
+No configuration knob disables this. No `force=True`, no `replace=True`.
+The recorder has one and only one behavior on collision: raise. This
+removes a whole class of "why is my chain doing X" debugging.
+
+The discipline this enforces: **all generated names that depend on the
+call site must be derived from a slot.** Push the burden onto the
+slot; force-fix surfaces at the slot binding rather than deep in the
+recording.
+
+----------------------------------------------------------------------
+10. Error vocabulary
+----------------------------------------------------------------------
+
+**Single base exception class.** Differentiation by `code`, not by
+subclass. Consumers do `except TemplateError as e: switch on e.code`.
+
+    class TemplateError(Exception):
+        code: str                  # one of the 21 codes below
+        stage: str                 # "registration" | "expansion" | "replay"
+        template_stack: list[str]  # path stack at failure point; [] for registration
+        details: dict              # error-specific fields
+
+        def to_dict(self) -> dict: ...
+
+`to_dict()` is what `validate_solution` returns to the LLM loop and
+what tests assert against. The exception itself carries a stack trace
+for human use. One shape, two consumers.
+
+### 10.1 Registration codes (raised by `define_template`)
+
+  bad_signature_positional_param   parameter is positional-or-keyword (no `*` separator)
+  bad_signature_var_args           function has *args or **kwargs
+  unknown_slot_kind                annotation does not map to a known kind
+  default_kind_mismatch            default value does not satisfy its annotated kind
+  unknown_engine                   engine= not in {chain_tree, s_engine}
+  unknown_kind                     kind= not in {composite, leaf, solution}
+  duplicate_path                   path already registered
+
+### 10.2 Expansion codes (raised by `use_template` / Recorder)
+
+  unknown_template                 path not in registry
+  unknown_slot                     caller passed a kwarg that isn't in the slot schema
+  missing_required_slot            required slot not supplied
+  slot_kind_mismatch               slot value's type doesn't match its kind
+  slot_null_not_allowed            slot is non-nullable but value is None
+  cross_engine_composition         inner template's engine ≠ active recorder's engine
+  unknown_recorder_method          template body called ct.foo() and foo isn't on
+                                   the engine's builder surface
+  recorder_stack_imbalance         define_* opened a frame that wasn't closed before
+                                   the body returned
+  duplicate_name_in_recording      two registrations of the same name within one recording
+  ct_used_outside_template         ct.method() called with empty recorder stack
+
+### 10.3 Replay codes (raised by `generate_code`)
+
+  replay_op_failed                 real builder raised while executing an op;
+                                   underlying exception wrapped in details["underlying"]
+  unresolved_recref                op references a RecRef never produced earlier
+  engine_dispatch_failed           op_list.engine not recognized (defense-in-depth)
+
+### 10.4 Template-stack on every error
+
+`template_stack` is set at raise time:
+  - Registration: empty list (no template is being executed).
+  - Expansion: snapshot of `[r.template_path for r in _recorder_stack]`.
+  - Replay: copied from the failing op's `source` field.
+
+Always populated, never best-effort, snapshot as a copy (not reference)
+so it survives stack unwind.
+
+### 10.5 Fail-early, no accumulation
+
+First error → raise → caller fixes → retry. No "here are 5 problems"
+reports. No deferred-error collection. Aligns with the project's
+fail-early/fail-fast stance and matches LLM-loop ergonomics.
+
+### 10.6 Wrap underlying exceptions
+
+`replay_op_failed` carries
+`details["underlying"] = {"type": "ValueError", "message": "..."}` so
+callers can drill in without losing template-system context. The outer
+error gives the template stack, op index, and method; the inner gives
+the engine's reason.
+
+----------------------------------------------------------------------
+11. Invariant boundary — what's checked where
+----------------------------------------------------------------------
+
+Each stage owns the invariants of its own machinery. Don't duplicate;
+don't backfill.
+
+  Stage          | Owns these invariants
+  ---------------|---------------------------------------------------------
+  Registration   | Function shape (kw-only, no varargs). Annotation→kind
+                 | validity. Default-vs-kind compatibility. Engine/kind
+                 | labels. Path uniqueness.
+  Expansion      | Slot presence/kind/nullability against schema. Recorder
+                 | stack discipline (define_* ↔ end_*). Duplicate-name
+                 | registration within one recording. Cross-engine
+                 | rejection. ct used outside template. Method existence
+                 | on the engine's builder surface.
+  Replay         | Real builder semantics. Op-arg validity. RecRef
+                 | resolution. Anything the engine raises while executing.
+  chain.run      | Engine-registry name resolution (chain_tree's existing
+                 | concern; not the template engine's problem).
+
+**The principle.** The recorder doesn't know the semantics of the
+methods it shadows. It records calls and tracks recording-state
+invariants. Op-arg semantic validation is the real builder's job.
+Authors should expect engine-arg errors at `generate_code`, not at
+`use_template`.
+
+----------------------------------------------------------------------
+12. The verbs
+----------------------------------------------------------------------
+
+### 12.1 `define_template(path, fn, *, kind, engine, describe=None, slot_examples=None)`
+
+Register `fn` in the registry under `path`. Validates signature, kinds,
+defaults, engine, kind. Raises any of the registration-stage codes.
+
+Parameters:
+  path           ltree path, full canonical name
+  fn             template body — Python function, kw-only params, no varargs
+  kind           "composite" | "leaf" | "solution"
+  engine         "chain_tree" | "s_engine"  (singular, mandatory)
+  describe       optional human description; falls back to fn.__doc__
+  slot_examples  optional dict of example values per slot, surfaced in
+                 describe_template for LLM use
+
+Schema captured at registration:
+  {
+    "path": ...,
+    "kind": ...,
+    "engine": ...,
+    "describe": ...,
+    "slots": [{"name", "required", "kind", "nullable", "default", "annotation"}, ...],
+    "slot_examples": ...,
+    "fn": <callable>,
+  }
+
+### 12.2 `use_template(path, **slots) -> OpList | None`
+
+Phase 1. Looks up `path`, validates `slots` against the schema, pushes
+a Recorder onto the stack, calls the body, pops, returns the OpList
+(or None if called nested — see §7.3).
+
+Validation runs *before* the body, so signature errors are reported
+with no partial recording.
+
+### 12.3 `generate_code(op_list, **engine_kwargs) -> chain | s_engine_root`
+
+Phase 2. Constructs the engine's real builder using
+`engine_kwargs` (e.g. `tick_period`, `logger` for ChainTree). Walks
+ops, dispatches each to the matching builder method, resolves RecRefs.
+Returns the engine-native build artifact.
+
+After this returns, the template engine has no further role.
+
+### 12.4 `list_template(**predicates) -> list[dict]`
+
+Query the registry. Predicates:
+  kind=                 exact match
+  engine=               exact match
+  path_under=           ltree prefix
+  name_like=            wildcard / glob / SQL-LIKE
+  slot_kinds_include=   templates that have any slot of the given kind
+
+Returns short-form metadata per match: `{path, kind, engine, describe, slot_count}`.
+
+### 12.5 `describe_template(path) -> dict`
+
+Returns full schema for one template, including slot kinds, defaults,
+nullability, and slot_examples (if registered). LLM-consumed; humans
+also use this.
+
+### 12.6 `validate_solution(path, **slots) -> dict`
+
+Runs phase 1 + phase 2 in dry-run mode. Returns `{"ok": True}` on
+success, or `{"ok": False, "stage": ..., "code": ..., "details": ...,
+"template_stack": [...]}` on first error. The LLM closed-loop verb.
+
+Implementation: try `use_template` then `generate_code`; catch
+`TemplateError` and return its `to_dict()`. The "dry-run" aspect of
+phase 2 means: a dummy/no-op chain instance that records dispatch but
+doesn't actually wire into a runnable engine. Probably implemented as
+a real chain that just doesn't get `run()`.
+
+----------------------------------------------------------------------
+13. Worked example — am_pm_state_machine end-to-end
+----------------------------------------------------------------------
+
+### 13.1 Authoring (templates/composites/chain_tree/am_pm_state_machine.py)
+
+    from typing import Callable, Optional
+    from template_language import ct, define_template
+
+    def am_pm_state_machine(*, sm_name: str,
+                            initial_action: Optional[Callable] = None,
+                            morning_action: Optional[Callable] = None,
+                            afternoon_action: Optional[Callable] = None):
+        """Three-state SM that dispatches AM/PM by wall clock."""
+
+        def _decide_initial_state(rt, data):
+            hour = rt.wall_clock().hour
+            target = "am" if hour < 12 else "pm"
+            rt.post_change_state(data["sm"], target)
+
+        ct.add_one_shot(f"{sm_name}_DECIDE", _decide_initial_state)
+
+        sm = ct.define_state_machine(
+            sm_name,
+            state_names=["initial", "am", "pm"],
+            initial_state="initial",
+        )
+
+        ct.define_state("initial")
+        ct.asm_log_message(f"{sm_name} initial")
+        if initial_action is not None:
+            initial_action()
+        ct.asm_one_shot(f"{sm_name}_DECIDE", data={"sm": sm})
+        ct.end_state()
+
+        ct.define_state("am")
+        ct.asm_log_message(f"{sm_name} am")
+        if morning_action is not None:
+            morning_action()
+        ct.end_state()
+
+        ct.define_state("pm")
+        ct.asm_log_message(f"{sm_name} pm")
+        if afternoon_action is not None:
+            afternoon_action()
+        ct.end_state()
+
+        ct.end_state_machine()
+        return sm
+
+    define_template(
+        path     = "composites.chain_tree.am_pm_state_machine",
+        fn       = am_pm_state_machine,
+        kind     = "composite",
+        engine   = "chain_tree",
+        slot_examples = {
+            "sm_name": "time_of_day_sm",
+            "morning_action": "lambda: ct.asm_log_message('morning')",
+            "afternoon_action": "lambda: ct.asm_log_message('afternoon')",
+        },
+    )
+
+    if __name__ == "__main__":
+        from template_language import use_template, generate_code
+        op_list = use_template(
+            "composites.chain_tree.am_pm_state_machine",
+            sm_name="demo",
+            morning_action=lambda: ct.asm_log_message("morning"),
+            afternoon_action=lambda: ct.asm_log_message("afternoon"),
+        )
+        chain = generate_code(op_list, tick_period=0.25)
+        # smoke-test: build and inspect, do not run
+        print(f"built chain with KBs: {chain.kb_names()}")
+
+### 13.2 Solution that uses it (solutions/am_pm_demo.py)
+
+    import template_language.templates.composites.chain_tree.am_pm_state_machine  # noqa: registers
+    from template_language import ct, use_template, generate_code
+
+    def _morning():
+        ct.asm_log_message("good morning, sensors warming up")
+
+    def _afternoon():
+        ct.asm_log_message("afternoon shift")
+
+    op_list = use_template(
+        "composites.chain_tree.am_pm_state_machine",
+        sm_name="time_of_day_sm",
+        morning_action=_morning,
+        afternoon_action=_afternoon,
+    )
+    chain = generate_code(op_list, tick_period=0.25)
+    chain.run(starting=["time_of_day_sm"])
+
+### 13.3 Op-list (after phase 1)
+
+    OpList(engine="chain_tree", ops=[
+      Op("add_one_shot",        ("time_of_day_sm_DECIDE", <fn>),       {}),
+      Op("define_state_machine",("time_of_day_sm",),
+                                {"state_names":["initial","am","pm"],"initial_state":"initial"}),
+      Op("define_state",        ("initial",), {}),
+      Op("asm_log_message",     ("time_of_day_sm initial",), {}),
+      Op("asm_one_shot",        ("time_of_day_sm_DECIDE",), {"data":{"sm":RecRef(...)}}),
+      Op("end_state",           (), {}),
+      Op("define_state",        ("am",), {}),
+      Op("asm_log_message",     ("time_of_day_sm am",), {}),
+      Op("asm_log_message",     ("good morning, sensors warming up",), {}),  # spliced from morning
+      Op("end_state",           (), {}),
+      Op("define_state",        ("pm",), {}),
+      Op("asm_log_message",     ("time_of_day_sm pm",), {}),
+      Op("asm_log_message",     ("afternoon shift",), {}),                   # spliced from afternoon
+      Op("end_state",           (), {}),
+      Op("end_state_machine",   (), {}),
+    ])
+
+Each Op also carries a `source` field (omitted above for brevity) =
+the template-path stack at the moment of recording.
+
+----------------------------------------------------------------------
+14. File layout
+----------------------------------------------------------------------
+
+  template_language/
+  ├── template_design.txt              # this file
+  ├── continue.md, code_design.md, mission.md   # design docs / history
+  ├── __init__.py                      # exposes: ct, define_template,
+  │                                    #          use_template, generate_code,
+  │                                    #          list_template, describe_template,
+  │                                    #          validate_solution, load_all
+  ├── ct.py                            # the proxy module
+  ├── recorder.py                      # Recorder, RecRef, Op, _recorder_stack
+  ├── registry.py                      # in-process registry; later DB-backed
+  ├── replay.py                        # generate_code logic, RecRef resolution
+  ├── render.py                        # op_list_to_python, op_list_to_json
+  ├── kinds.py                         # slot-kind enum, annotation→kind mapping
+  ├── errors.py                        # TemplateError, Codes
+  │
+  ├── templates/                       # authoring tree, mirrors ltree paths
+  │   ├── __init__.py                  # empty; do NOT eagerly import children
+  │   ├── composites/
+  │   │   ├── chain_tree/
+  │   │   │   ├── am_pm_state_machine.py
+  │   │   │   └── fire_in_window.py
+  │   │   └── s_engine/
+  │   │       └── fire_in_window.py
+  │   ├── leaves/
+  │   │   ├── chain_tree/print_hello.py
+  │   │   └── s_engine/print_hello.py
+  │   └── solutions/
+  │       └── chain_tree/am_pm_demo.py # solution as template (§8)
+  │
+  ├── solutions/                       # ad-hoc build scripts (optional)
+  │   └── am_pm_demo.py                # if not stored as a template
+  │
+  └── tests/
+      ├── test_recorder.py
+      ├── test_registry.py
+      ├── test_replay.py
+      ├── test_render.py
+      ├── test_kinds.py
+      ├── test_errors.py
+      └── test_am_pm_template.py       # full define→use→generate→run
+
+**Filesystem ↔ ltree path.** A file at
+`templates/composites/chain_tree/am_pm_state_machine.py` is *expected*
+(by convention) to register at path
+`composites.chain_tree.am_pm_state_machine`. The mapping is
+documentation/discovery aid; the **authority is the explicit `path=`**
+argument to `define_template`. Renaming a file does not auto-rename
+the registered path; you must update the `path=` too.
+
+**One template per file.** Body function + `define_template(...)` at
+module bottom + `if __name__ == "__main__":` smoke test.
+
+**Registry population.** Two paths, no magic:
+  - *Explicit* — solution scripts import the specific templates they use.
+  - *Bulk* — `template_language.load_all()` walks `templates/` via
+    `pkgutil.iter_modules` and imports everything. For demos and tests.
+
+Empty `__init__.py` in each subdirectory; no eager import.
+
+----------------------------------------------------------------------
+15. LLM composition
+----------------------------------------------------------------------
+
+LLMs **compose pre-tested templates into solutions**. They do not
+author new templates. (Authoring is human work; templates are tested
+artifacts, not ad-hoc generated code.)
+
+The closed loop:
+
+    LLM: list_template(kind="composite", engine="chain_tree", path_under="composites")
+         → [paths]
+    LLM: describe_template(each_path)
+         → schema with kinds, defaults, examples
+    LLM: validate_solution(chosen_path, **proposed_slots)
+         → {"ok": False, "stage": "expansion", "code": "slot_kind_mismatch",
+            "details": {"slot": "body", "expected_kind": "ACTION", "got_type": "str"}}
+    LLM: corrects, retries validate_solution
+         → {"ok": True}
+    LLM: emits the runnable solution file
+
+`describe_template`'s payload shape (LLM-consumable):
+
+    {
+      "path":     "composites.chain_tree.fire_in_window",
+      "kind":     "composite",
+      "engine":   "chain_tree",
+      "describe": "Run body only when wall-clock is in window.",
+      "slots": [
+        {"name": "start", "required": true,  "kind": "DICT",     "nullable": false, "default": null,
+         "annotation": "dict", "example": {"hour": 9, "minute": 30}},
+        {"name": "end",   "required": true,  "kind": "DICT",     "nullable": false, "default": null,
+         "annotation": "dict", "example": {"hour": 16, "minute": 0}},
+        {"name": "body",  "required": true,  "kind": "ACTION",   "nullable": false, "default": null,
+         "annotation": "Callable", "example": "lambda: use_template('...')"},
+        {"name": "key",   "required": false, "kind": "STRING",   "nullable": false, "default": "in_window",
+         "annotation": "str", "example": "market_open"}
+      ]
+    }
+
+----------------------------------------------------------------------
+16. Storage (deferred to continue.md)
+----------------------------------------------------------------------
+
+The op-list is **not** what gets stored — the **template function
+source** is stored, exactly as hand-authored. `use_template` re-runs
+the function through a fresh Recorder every call. Op-lists are
+ephemeral build artifacts and are not picklable (closures).
+
+If pretty-printed Python source is desired as a viewable artifact,
+render via `op_list_to_python(op_list)` — a one-way dump, never
+parsed back.
+
+DB schema, ltree, SQLite extension: see `continue.md` §1, §2.1, §6.
+The four-verb registry persistence layer (`store_template`,
+`delete_template`, plus `use_template`/`describe_template` going
+through the DB) is **deferred** until the in-process implementation
+runs and exposes real friction.
+
+[deferred] DB schema columns, version semantics, instance-as-derived-
+template (continue.md §2.7), cascade behavior on delete.
+
+----------------------------------------------------------------------
+17. Implementation plan — next session
+----------------------------------------------------------------------
+
+The goal of the next session is to land the smallest end-to-end
+in-process implementation that can build and run the
+`am_pm_state_machine` template. No DB, no LLM verbs, no s_engine side.
+Get the chain_tree path working first, all the way through
+`chain.run()`.
+
+### Phase A — foundation (sequential, do in order)
+
+  A1. **kinds.py** — slot-kind enum, annotation→kind mapping.
+      - Define `Kind` enum: STRING, INT, FLOAT, BOOL, DICT, LIST,
+        RECREF, ACTION, ENGINE_MAIN, ENGINE_BOOLEAN, ENGINE_ONE_SHOT,
+        ENGINE_SE_MAIN, ENGINE_SE_PRED, ENGINE_SE_ONE_SHOT,
+        ENGINE_SE_IO_ONE_SHOT, ANY.
+      - `annotation_to_kind(annotation) -> (kind, nullable)` mapping
+        Python type annotations to (Kind, bool). Handle `Optional[X]`,
+        `X | None`, `Callable`, bare types, missing annotations (→ ANY).
+      - `validate_value_against_kind(value, kind, nullable) -> bool`.
+      - Tests: each kind round-trips from annotation; nullability
+        detected; bad values fail.
+
+  A2. **errors.py** — TemplateError + Codes.
+      - `Codes` constants for all 21 codes (string values).
+      - `TemplateError` class with `code`, `stage`, `template_stack`,
+        `details`, `to_dict()`.
+      - Tests: round-trip of `to_dict()`; no missing codes vs the
+        catalog in §10.
+
+  A3. **recorder.py** — Recorder, RecRef, Op, the stack.
+      - `Op` dataclass (method, args, kwargs, source).
+      - `RecRef` — opaque sentinel with kind tag and an integer id.
+      - `Recorder` class:
+          * Holds engine label, template_path, op-list, shadow stack,
+            seen-name registries (per namespace).
+          * `__getattr__` returns a method shim that records and
+            (where applicable) returns a RecRef.
+          * Method shim consults a method-list per engine — initially
+            mirror chain_tree's `ChainTree` class methods (read at
+            module-load time via `inspect.getmembers`).
+          * Stack/name-discipline checks raise the appropriate codes.
+      - `_recorder_stack: list[Recorder]` module-level.
+      - Tests: stack imbalance, duplicate name, RecRef issuance,
+        method dispatch.
+
+  A4. **ct.py** — the proxy.
+      - `_CtProxy.__getattr__` resolves to `_active().method`; raises
+        `ct_used_outside_template` if no active recorder.
+      - `ct = _CtProxy()`.
+      - Tests: ct.foo() inside a recording dispatches; outside raises;
+        attribute access cached only within one method-call cycle.
+
+### Phase B — verbs (sequential)
+
+  B1. **registry.py** — in-process registry.
+      - Module-level dict `_registry: dict[str, RegisteredTemplate]`.
+      - `RegisteredTemplate` dataclass: path, fn, kind, engine, describe,
+        slot_examples, slot schema (computed once at registration).
+      - `define_template(path, fn, *, kind, engine, describe=None, slot_examples=None)`:
+          * Inspect signature, build slot schema via kinds.py.
+          * Validate kw-only, no varargs, defaults match kinds.
+          * Validate engine, kind, uniqueness of path.
+          * Store. Return None.
+      - Tests: registration ok; each registration error fires its code.
+
+  B2. **expansion** — `use_template` in `__init__.py` (or `expansion.py`).
+      - Look up path; validate slots against schema; push Recorder;
+        call fn; pop; return OpList (outermost) or None (nested).
+      - Slot validation: required, unknown, kind, nullability.
+      - Cross-engine check: if active recorder exists, compare engines.
+      - Tests: per-error tests, nesting, splice correctness.
+
+  B3. **replay.py** — `generate_code`.
+      - Dispatch on `op_list.engine` to construct the right builder
+        (initially: only "chain_tree" → `ChainTree(**kwargs)`).
+      - Walk ops; substitute RecRefs from a map; call
+        `getattr(chain, method)(*args, **kwargs)`; record returned
+        nodes back into the map by RecRef.
+      - Wrap engine-side exceptions in `replay_op_failed` with
+        `template_stack` from `op.source`.
+      - Tests: round-trip, RecRef substitution, exception wrapping.
+
+### Phase C — first real template (the acceptance gate)
+
+  C1. **templates/composites/chain_tree/am_pm_state_machine.py** —
+      hand-write the template per §13.1.
+
+  C2. **tests/test_am_pm_template.py** — full round-trip:
+      - Register the template.
+      - `use_template(...)` produces the expected OpList shape.
+      - `generate_code(...)` produces a ChainTree.
+      - `chain.run(...)` for one tick runs the expected log messages.
+      - This test is the v1 acceptance gate.
+
+### Phase D — auxiliary verbs (after the gate is green)
+
+  D1. **list_template, describe_template** — read-only registry queries.
+      Return the JSON shapes documented in §15.
+
+  D2. **validate_solution** — wraps use_template + generate_code with
+      try/except TemplateError, returns to_dict() on failure.
+
+  D3. **render.py** — `op_list_to_python`, `op_list_to_json`.
+
+### Phase E — second template, then s_engine
+
+  E1. **templates/composites/chain_tree/fire_in_window.py** — exercises
+      composition via the ACTION slot.
+
+  E2. Decide the chain_tree shape for `fire_in_window` (continue.md §6
+      open item 5: needs reading `ct_builtins/controlled.py` and
+      figuring out the natural "gate a column on a blackboard bool"
+      idiom).
+
+  E3. **s_engine recorder** — second engine, mirror the chain_tree
+      Recorder against the s_engine builder. Re-run Phase B3's
+      replay path with engine dispatch on "s_engine".
+
+  E4. **templates/composites/s_engine/fire_in_window.py** — the
+      s_engine version, distinct ltree path.
+
+### Phase F — DB layer (future, deferred)
+
+  F1. SQLite + ltree. Schema. `store_template`, `delete_template`.
+  F2. `use_template` reads from DB instead of in-process registry.
+  F3. Source-storage discipline; smoke-test handling.
+
+### Test invocation
+
+Source `enter_venv.sh` from `/home/gedgar/robot_person/`. Run pytest
+from the `template_language/` package root. Match the s_engine /
+chain_tree pattern.
+
+### Definition of done for v1
+
+  - `chain_tree` recorder + replay implemented.
+  - One leaf and one composite template hand-written and registered.
+  - `am_pm_state_machine` round-trip test passes (build + one tick of
+    `chain.run()` produces the expected log messages).
+  - All 21 error codes raise from at least one test.
+  - `describe_template` returns the documented JSON shape for the
+    am_pm template.
+  - No DB, no s_engine side, no `validate_solution`, no LLM verbs.
+
+----------------------------------------------------------------------
+18. Open items / deferred
+----------------------------------------------------------------------
+
+  1. **`fire_in_window` body for chain_tree** — depends on chain_tree
+     conditional idiom; read `ct_builtins/controlled.py` first.
+
+  2. **DB schema details** — continue.md §6 item 1. Defer until v1
+     in-process is running.
+
+  3. **Versioning / migration** — when a template body changes, do
+     downstream solutions get the new body or a pinned version?
+     continue.md mentions a `version` column without semantics.
+
+  4. **Caching of compiled template fns** — DB-era. Pre-DB it's just
+     `import`.
+
+  5. **Smoke-test fate at `store_template`** — preserve in `body_python`
+     or strip? continue.md §6 item 4.
+
+  6. **Op-list serialization** — confirmed *not supported* (closures).
+     If a serializable form is ever wanted, render via
+     `op_list_to_python` and stash the source, not the op-list.
+
+  7. **Optional `tl.run(path, **slots)` sugar verb** — explicitly
+     dropped from the core spec. Users can write a four-line helper
+     in their own code.
+
+  8. **slot_examples format for callables** — currently a string
+     showing the recommended idiom. Could become structured later
+     (e.g., name + kind + optional source). Defer.
+
+  9. **Recorder method-list source of truth** — initially read from
+     `ChainTree.__dict__` at module load. If chain_tree's surface
+     changes, recorder picks it up automatically — but unrecognized
+     methods become "unknown_recorder_method" errors. Worth a smoke
+     test to detect drift.
+
+ 10. **Performance** — not a concern for v1. Op-list is small (tens
+     to thousands of ops); recorder dispatch is microseconds.
+
+----------------------------------------------------------------------
+19. Engine-side change already landed (carried forward from prior session)
+----------------------------------------------------------------------
+
+The wall-clock `time_window` operator was rewritten in **both engines**
+to support per-field semantics (the previous "compose into seconds-of-
+day" shape couldn't express "fire every minute when sec=15"). User
+signed off, all tests passing.
+
+**Files changed (uncommitted at session-start):**
+  - `s_engine/se_builtins/time_window.py`, `s_engine/se_dsl/primitives.py`,
+    `s_engine/tests/test_time_window.py`
+  - `chain_tree/ct_builtins/time_window.py`, `chain_tree/ct_dsl/builder.py`,
+    `chain_tree/tests/test_time_window.py`
+
+**Test status:** s_engine 197/197, chain_tree 136/136. Independent
+of the template engine; tracked here only because the working tree
+holds these uncommitted modifications.

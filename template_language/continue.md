@@ -1,37 +1,72 @@
-# Template Language — Design State (2026-04-30)
+# Template Language — Design State (2026-04-30, locked)
 
-A template system for composing s_engine and chain_tree dict-trees. Templates
-are plain Python functions stored in a SQLite/ltree-backed registry. The
-runtime user never imports the Python files — they interact only with the
-DB via four verbs (`use_template`, `store_template`, `delete_template`,
-`list_template`).
+A two-phase template system over s_engine and chain_tree. Templates are
+plain Python functions whose keyword-only parameters are slots. Phase 1
+runs the body against a Recorder, producing an op-list; phase 2 replays
+the op-list against the real engine builder. The DB-backed registry
+(SQLite/ltree) is the eventual source of truth at runtime; the v1
+implementation uses an in-process registry so the design can land
+end-to-end before storage is wired in.
 
-This file supersedes the prior `continue.md` (v1, restricted-Python pidgin
-proposal). The HTN/railroad doc `code_design.md` and the prose-direction
-doc `mission.md` remain as historical context only.
+**Authoritative spec for the template engine machinery is now
+`template_design.txt`** (rewritten in the 2026-04-30 session, ~700
+lines, fully locked). This file retains the storage / DB-registry plan
+and the historical session log; for everything else, defer to
+`template_design.txt`.
+
+The HTN/railroad doc `code_design.md` and the prose-direction doc
+`mission.md` remain as historical context only.
 
 ---
 
-## 0. Nothing is locked in yet
+## 0. Status — locked as of 2026-04-30
 
-**Status: exploratory.** The user has explicitly said they have not done
-this kind of system before and the working stance is "feel our way." No
-code has been written for the template language itself (the
-`template_language/` directory contains only design docs). Every
-"decision" recorded below is a tentative resting point from the chat —
-**any of it can change** when the user returns with hand-written
-templates and we see how the design holds up against real authoring.
+The template engine design was locked end-to-end in the 2026-04-30
+session. The major decisions:
 
-In particular: the four-verb API, the function-as-template shape, the
-SQLite/ltree storage choice, the per-engine label scheme, the chain_tree
-slot-type proposal — none of these are committed. They are the current
-best guesses from a conversation that ended deliberately before
-implementation. Treat §2 below as "where the design discussion landed,"
-not as "what the system is."
+  1. **Two-phase model** — phase 1 records ops via a Recorder; phase 2
+     replays into a real engine builder. Op-list is the only
+     intermediate; no text substitution, no AST, no codegen.
+  2. **`generate_code` returns just the engine artifact** — no
+     metadata, no struct. Template engine has no role after phase 2.
+  3. **Engine identity is singular and mandatory** at registration.
+     No mixed-engine templates. Cross-engine composition rejected at
+     expansion. Bridges (chain_tree's `add_se_*`) are slot values
+     crossing between two single-engine builds, not template-internal
+     mixing.
+  4. **Recorder stack is a plain module-level list**, not a contextvar.
+     Single-context, matching chain_tree's discipline.
+  5. **Slot kinds enforced via Python annotations.** Fixed kind
+     vocabulary (STRING, INT, FLOAT, BOOL, DICT, LIST, RECREF, ACTION,
+     ENGINE_MAIN, ENGINE_BOOLEAN, ENGINE_ONE_SHOT, ENGINE_SE_*, ANY).
+     Nullability is a slot attribute, not a kind.
+  6. **Closure-based fn parameterization** — the C++ template analogy.
+     Inline closures capture slot values; registered under
+     slot-derived names; collisions are hard-error.
+  7. **Hard-error rule for all collisions** — no `force=True`, no
+     "last wins." Author must restructure or rename. Force fix.
+  8. **Unified error vocabulary** — single `TemplateError` class with
+     `code`, `stage`, `template_stack`, `details`. 21 codes split
+     across registration / expansion / replay stages.
+  9. **Invariant boundary** — recorder catches template-system
+     invariants (stack, names, kinds, engine); replay catches engine-
+     builder invariants (op-arg semantics, RecRef resolution).
+ 10. **LLMs compose pre-tested templates into solutions; they do not
+     author new templates.** This narrows the LLM use case and means
+     `validate_solution` is the closed-loop verb (not a generation
+     loop).
+ 11. **Everything is a template** — leaf, composite, solution
+     differ by convention only; same registry, same verbs, same
+     machinery.
 
-The only thing that is real and committed is the engine-side `time_window`
-change in §3 — that ships actual code with passing tests, independent of
-whatever the template language ultimately becomes.
+`template_design.txt` §17 contains the implementation plan for the
+next session (Phases A–F). The v1 acceptance gate is the
+`am_pm_state_machine` round-trip: define → use → generate → run for
+one tick, with all 21 error codes covered by tests.
+
+The engine-side `time_window` change in §3 below is independent of
+the template engine; it ships actual code with passing tests but is
+**still uncommitted** in the working tree as of 2026-04-30.
 
 ---
 
@@ -248,11 +283,35 @@ clearly.
 
 ---
 
-## 5. The chain_tree shape problem (open architectural question)
+## 5. The chain_tree shape problem — RESOLVED 2026-04-30
 
-**Discovery from this session:** chain_tree templates cannot have the
-same `(slots) -> dict` shape as s_engine templates. Three reasons, all
-real:
+**Resolution.** Direction A from the original list, but reshaped: the
+two engines do not try to share a `(slots) -> dict` body shape at all.
+Both engines use the same template machinery — function with kw-only
+slots, op-list intermediate, closure-based fn parameterization — but
+each engine's recorder shadows its own builder surface. Templates are
+single-engine (`engine="chain_tree"` or `engine="s_engine"`); cross-
+engine composition is rejected at expansion. Bridges (chain_tree's
+`add_se_*`) are slot values crossing between two single-engine builds
+at the user's solution level, not template-internal.
+
+The `(chain, sm) -> None` callable shape proposed below is also
+**superseded**. Action slots are zero-arg callables; the active builder
+is reached via the module-level `ct` proxy, which resolves through the
+recorder stack. RecRefs from recorder methods (e.g. `define_state_machine`
+returning a state-machine RecRef) flow between templates as ordinary
+slot values with kind `RECREF`.
+
+See `template_design.txt` §3, §4, §5, §6, §7 for the locked design.
+
+The original open question and three options below are preserved as
+historical context.
+
+---
+
+**Original discovery (2026-04-30 morning):** chain_tree templates
+cannot have the same `(slots) -> dict` shape as s_engine templates.
+Three reasons, all real:
 
 1. **chain_tree is builder-based.** `define_state_machine` /
    `define_state` / `end_state_machine` push and pop frames on a
@@ -354,37 +413,43 @@ C. Drop the "same logical template across engines" goal entirely. Treat
 
 ---
 
-## 7. The user is writing templates next session
+## 7. Next session — implementation
 
-User stated they will hand-write the three demo templates and bring them
-in. The intent is to use the templates as concrete grist — let the API
-shape fall out of "what does this template need to be expressible?"
-rather than designing the API in the abstract.
+The 2026-04-30 design session locked the engine. The next session
+implements per `template_design.txt` §17 (Phases A–F). The v1
+acceptance gate is the `am_pm_state_machine` round-trip:
 
-When the user returns with templates:
+  1. Phase A — kinds.py, errors.py, recorder.py, ct.py
+  2. Phase B — registry.py, expansion (use_template), replay.py
+  3. Phase C — first real template + acceptance test
+  4. Phase D — list_template, describe_template, validate_solution
+  5. Phase E — second template (fire_in_window), then s_engine recorder
+  6. Phase F — DB layer (deferred)
 
-1. Read what they wrote — function signature reveals their slot
-   intuitions, body reveals which DSL primitives they reach for, smoke
-   test reveals their preferred call shape.
-2. Match the templates against the (still-tentative) shapes in §4–§5.
-3. Resolve §5's slot-type question if the chain_tree templates are
-   among them. If only s_engine, defer.
-4. From the resolved shapes, draft `register(...)` and the four DB
-   verbs. Don't generalize beyond what the three templates need.
+Definition of done for v1:
+  - chain_tree recorder + replay implemented.
+  - One leaf and one composite template hand-written + registered.
+  - `am_pm_state_machine` round-trip test passes (build + one tick).
+  - All 21 error codes raise from at least one test.
+  - `describe_template` returns the documented JSON shape.
+  - No DB, no s_engine side, no LLM verbs.
+
+Test invocation: source `enter_venv.sh` from
+`/home/gedgar/robot_person/`, run pytest from `template_language/`.
 
 ---
 
 ## 8. Repo pointers
 
-- Root: `/home/glenn/robot_person/`
-- This package: `/home/glenn/robot_person/template_language/` (no code
+- Root: `/home/gedgar/robot_person/`
+- This package: `/home/gedgar/robot_person/template_language/` (no code
   yet — only `mission.md`, `code_design.md`, this file).
-- `s_engine`: `/home/glenn/robot_person/s_engine/` — Python port complete,
+- `s_engine`: `/home/gedgar/robot_person/s_engine/` — Python port complete,
   197 tests passing.
-- `chain_tree`: `/home/glenn/robot_person/chain_tree/` — Python port
+- `chain_tree`: `/home/gedgar/robot_person/chain_tree/` — Python port
   complete, 136 tests passing.
 - ltree extension: `/usr/local/lib/ltree.so`.
 - ltree wrapper: `/home/glenn/knowledge_base/kb_modules/kb_python/sqlite3/`.
-- Test invocation: source `/home/glenn/robot_person/enter_venv.sh` (sets
+- Test invocation: source `/home/gedgar/robot_person/enter_venv.sh` (sets
   PYTHONPATH and activates `.venv/`). Non-interactive: see the
   `reference_test_invocation` memory.
