@@ -2,6 +2,145 @@
 
 ---
 
+## DESIGN EXPLORATION — 2026-05-01 (post-impl reflection)
+
+After the implementation closed, Glenn opened a design exploration
+about how the system is *lived in*, not how it's built. Captures
+durable framing that should shape next-session work.
+
+### Three template layers (reuse-driven, not elegance-driven)
+
+  inline `def`/lambda           single solution, single use
+  user/project template         multi-use within one project
+  system library template       cross-project (current 12 templates)
+
+Boundaries are reuse-driven. Don't extract for elegance; extract
+when the parent file gets too long to read in one sitting, or when
+the same shape is needed in 2+ places. Project-level invariants
+live in the project layer; engine-level invariants live in the
+system layer.
+
+### Visibility wins (legibility principle)
+
+Glenn's framing: *"the construction process needs to be visible to
+the user rather than spread out in 100s of files. sort of like the
+days of one function per file."*
+
+  - The user's solution file is the **table of contents**: reads
+    top-to-bottom as the description of what the KB does. Each
+    `use_template(...)` is a chapter heading.
+  - **Decompose without distributing.** A 500-line solution split
+    into main + 4 chunk files: fine. A 50-line solution split into
+    6 files because each thing "should be its own template": the
+    anti-pattern.
+  - Library templates are **vocabulary**. The user trusts them
+    based on `describe_template` output without opening source.
+    Many .py files (one per template) is fine because the user
+    never reads them sequentially.
+  - Inline `def`s and lambdas in solution files are **features,
+    not refactor candidates**.
+
+### Multi-root namespacing (planned, not implemented)
+
+The registry currently has one root. At scale (100s–1000s of
+templates) it needs multiple roots with namespace prefixes:
+
+  ```
+  register_template_root("<system>",  prefix="system")
+  register_template_root("<user>",    prefix="user")
+  register_template_root("<project>", prefix="project.coffee_maker")
+  ```
+
+  - `system.*` — built-in library, frozen, versioned
+  - `user.*` — personal cross-project templates
+  - `project.<name>.*` — project-local templates
+
+Discovery is naturally scoped by namespace — a user in project X
+sees their templates + system library, not other projects'.
+
+### Use vs discovery cost
+
+  Use cost (lazy import per use_template): fine at any scale —
+                                            Python's module cache
+                                            handles it; ~50 ms for
+                                            30 imports per solution.
+  Discovery cost (load_all + list_template): bottleneck at scale —
+                                              importing 1000 modules
+                                              for metadata is slow.
+
+Two-stage fix:
+
+  1. **AST harvest** (Phase F-lite, ~1 session) — parse each .py
+     file's AST, extract literal `define_template(...)` args, build
+     a metadata index without executing module bodies. Cache to
+     `templates/.index.json`. `list_template` reads the index;
+     `use_template` still triggers lazy import.
+  2. **DB layer** (Phase F per spec §16, deferred) — SQLite + ltree.
+     Right answer for the 1000-template world.
+
+### MCP as the LLM on-ramp
+
+The architecture is a training-free fine-tune for any LLM that
+touches it:
+
+  - Slot signatures = function-call schemas (every LLM speaks
+    tool-use natively)
+  - 20-code TemplateError = finite error vocabulary for LLM
+    self-correction (closed vocabulary >> stack traces for
+    compositional reasoning)
+  - Visibility principle = LLM context efficiency (one solution =
+    one prompt; chunks loaded on demand)
+  - Multi-root namespacing = bounded discovery (project catalog
+    fits in context)
+  - Templates as vocabulary, slots as parameters — pattern frontier
+    LLMs already recognize from C++ templates / HTN methods
+
+A poorly-aligned LLM still produces correct compositions because
+`validate_solution` filters at the boundary. A well-aligned LLM
+converges faster. Either way the artifact is constrained-correct
+— stronger than "the LLM is well-trained." Layered-invariants
+thesis (openclaw_research.md §8) applied to the LLM as reasoner.
+
+### MCP server design (sketch, not implemented)
+
+  Tools:     list_template, describe_template, validate_solution,
+             run_solution, register_user_template
+  Resources: template://, example://, docs://template_design.txt,
+             docs://why.md
+  Prompts:   compose_solution_for_goal, decompose_large_solution
+
+Any MCP-aware client (Claude Desktop, Claude Code, IDE
+integrations) gets template_language compositional capability for
+free. The MCP server is the durable inheritance artifact; LLMs
+talking to it improve in the background without server changes.
+
+### Local LLM training — the wrong frame
+
+  - RAG / context injection (frontier LLM + examples as MCP
+    resources): strong, no training needed
+  - Fine-tuning a small local LLM: marginal; thousands of examples
+    needed; we'll have tens for years
+  - **The architecture replaces the need to train.** Asymmetric bet
+    (openclaw_research.md §11): works if LLMs improve, works if they
+    plateau
+
+### Updated next-session priority order
+
+  1. Architectural memo (`why.md`) — visibility, three layers,
+     decomposition without distribution, use-vs-discovery cost,
+     multi-root, MCP. Highest-leverage transferable artifact per
+     openclaw_research.md §12.
+  2. Multi-root registry support — `register_template_root(path,
+     prefix)`. ~1 session.
+  3. One worked end-to-end example (`coffee_maker/` project tree).
+     Tests the model concretely.
+  4. MCP server for template_language — highest-leverage adoption
+     move post-memo.
+  5. AST harvest only when scale bites.
+  6. Phase F (DB) further deferred.
+
+---
+
 ## SESSION CLOSE — 2026-05-01: concept proven, transition to refinement
 
 End-of-session reflection (Glenn): "we proved a concept now to refine."
