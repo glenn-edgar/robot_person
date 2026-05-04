@@ -27,7 +27,7 @@ for p in (_parent, _chain_tree):
 
 import pytest  # noqa: E402
 
-from template_language.registry import _registry  # noqa: E402
+from template_language.registry import _registry, _reset_roots  # noqa: E402
 from template_language.recorder import _recorder_stack  # noqa: E402
 
 
@@ -35,6 +35,8 @@ from template_language.recorder import _recorder_stack  # noqa: E402
 def _clean_registry():
     _registry.clear()
     _recorder_stack.clear()
+    _reset_roots()
     yield
     _registry.clear()
     _recorder_stack.clear()
+    _reset_roots()

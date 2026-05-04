@@ -2,6 +2,205 @@
 
 ---
 
+## SESSION LOG — 2026-05-03: multi-root + coffee_maker example landed
+
+Tasks 2 and 3 from the next-session priority order (continue.md
+2026-05-01) shipped in one session. **212/212 tests passing + 1
+skipped** (193 pre-existing core + 13 new multi-root + 6 new
+coffee_maker). Glenn deferred tasks 1 / 4 / 5 / 6 explicitly:
+*"we can write the other ones better after we complete these tasks"*
+— the coffee_maker example concretizes the abstractions the memo
+must explain.
+
+### What landed
+
+  Multi-root registry (registry.py):
+    register_template_root(package, prefix="")
+    list_template_roots()                  → public reflection
+    _reset_roots()                         → test helper
+    _Root dataclass; module-level _roots list with default
+    empty-prefix root pre-registered for template_language.templates.
+    _resolve_module_for_path picks longest matching prefix, falls
+    through to default. get_template + load_all rewritten to use
+    multi-root lookup. No migration of existing system paths needed
+    — they keep resolving via the empty-prefix root.
+
+  Hard-error rules carried forward:
+    - Duplicate prefix → ValueError (per no-silent-overwrite spec).
+    - Invalid prefix (non-identifier segments) → ValueError.
+    - Cross-root duplicate full path → still DUPLICATE_PATH from
+      define_template (no new error code needed).
+    - Path-under-registered-prefix-but-file-missing → standard
+      UNKNOWN_TEMPLATE with `tried_module` populated for LLM
+      self-correction.
+
+  Test plumbing (conftest.py):
+    Autouse _clean_registry fixture now also calls _reset_roots()
+    before+after each test. New test fixture package at
+    `tests/_fixture_root/` holds a single probe leaf used by the
+    multi-root tests; tests register that package under prefix
+    `project.fixture` and exercise lookup paths.
+
+  Coffee maker worked example (examples/coffee_maker/):
+    __init__.py                         empty (no side-effect register)
+    bootstrap.py                        idempotent bootstrap()
+    templates/leaves/chain_tree/brew_log.py
+    templates/solutions/chain_tree/morning_kb.py
+    run.py                              standalone AM/PM runner
+    conftest.py                         per-test sys.path + bootstrap
+    test_coffee_maker.py                6 smoke tests
+
+  The morning_kb solution puts all three layers in one file:
+    SYSTEM:  composites.chain_tree.am_pm_state_machine
+    PROJECT: project.coffee_maker.leaves.chain_tree.brew_log
+             (used twice — AM and PM action slots)
+    INLINE:  lambda: ct.asm_log_message("coffee_maker: powering on")
+             (one-off startup line)
+
+### Locked design decisions for the multi-root layer
+
+  1. **Default root stays unprefixed.** The 12 system templates keep
+     their bare paths (e.g. `composites.chain_tree.am_pm_state_machine`
+     rather than `system.composites.chain_tree.am_pm_state_machine`).
+     Mass-renaming to a `system.` prefix would break every existing
+     test and template and gain nothing the empty-prefix-default
+     doesn't already provide. Glenn's continue.md sketch showed
+     `register_template_root("<system>", prefix="system")` but that
+     was an aspirational shape; the implemented form is "system root
+     has no prefix; explicit roots add prefixes." Future work can
+     namespace the system root if a real conflict arises.
+
+  2. **Project bootstrap is an explicit function, not __init__.py
+     side effect.** Tests that call `_reset_roots()` between runs
+     need `bootstrap()` to be re-callable; if registration lived in
+     `__init__.py`, Python's module cache would skip re-execution
+     after the first import. Putting it in a callable means the
+     conftest can re-bootstrap deterministically per-test. This
+     mirrors the `_evict_template_modules` pattern already used by
+     test_loader.py.
+
+  3. **Idempotence is a project-boundary concern, not a registry-
+     boundary concern.** `register_template_root` itself stays
+     strict (duplicate prefix → ValueError). Each project's
+     `bootstrap()` reads `list_template_roots()` and skips the call
+     if its prefix is already registered with the same package; it
+     raises if the package mismatches. This keeps the registry's
+     no-silent-overwrite property while letting projects be
+     re-callable.
+
+  4. **Longest-prefix-wins resolution.** When prefixes nest (e.g.
+     `project` and `project.coffee_maker` both registered), the
+     longest match takes the request. The default empty-prefix root
+     is sorted last by definition (length 0). One of the
+     multi-root tests pins this behavior explicitly so future
+     refactors don't accidentally invert the order.
+
+  5. **load_all walks every registered root.** Bulk discovery
+     across system + user + project namespaces. Skips roots whose
+     package isn't importable (silent — a project may be
+     registered but not yet on the path). Tests cover the
+     "two roots populated together" path.
+
+### Mechanics worth flagging
+
+  - **Module eviction is two-layered.** `get_template` evicts the
+    candidate module from sys.modules before re-import (handles
+    "registry was cleared but module was cached" case for system
+    templates). The coffee_maker conftest evicts both
+    `template_language.templates.*` and `coffee_maker.templates.*`
+    before each test (handles the same case for project templates).
+    Without the project-side eviction, the second test in a session
+    would see an empty registry but cached modules that don't
+    re-register on re-import.
+
+  - **`_fixture_root/` lives under `tests/`.** Putting it inside
+    the tests directory keeps it from polluting the public template
+    namespace, and pytest's tests/ collection ignores leading-
+    underscore directories so it doesn't try to discover fixtures
+    as tests.
+
+  - **Test discovery is naturally scoped by namespace.**
+    `list_template(path_under="project.coffee_maker")` returns only
+    the project's templates. The coffee_maker test for this
+    behavior also asserts the result is *exclusively* under the
+    namespace — no leakage from the default root.
+
+### Test status (2026-05-03)
+
+  - chain_tree: 136/136 still passing (independent).
+  - s_engine: 197/197 still passing (independent — multi-root
+    change is in template_language only).
+  - template_language: 206/206 + 1 skipped (was 193; +13 for
+    test_multi_root.py).
+  - examples/coffee_maker: 6/6 (separate pytest invocation:
+    `python -m pytest examples/coffee_maker/`).
+  - Combined: 212/212 + 1 skipped.
+
+### Library shape now
+
+  ```
+  System library (default root, prefix=""):
+    composites.chain_tree.am_pm_state_machine
+    composites.chain_tree.fire_in_window
+    composites.chain_tree.state_machine
+    composites.chain_tree.time_gate
+    composites.chain_tree.termination
+    composites.chain_tree.container
+    composites.chain_tree.try_till_pass
+    composites.chain_tree.try_till_fail
+    leaves.chain_tree.print_hello
+    leaves.chain_tree.mark_link
+    composites.s_engine.fire_in_window
+    leaves.s_engine.print_hello
+
+  Project example (examples/coffee_maker/, prefix="project.coffee_maker"):
+    project.coffee_maker.leaves.chain_tree.brew_log
+    project.coffee_maker.solutions.chain_tree.morning_kb
+  ```
+
+### Remaining priority order (post-2026-05-03)
+
+  1. **Architectural memo (`why.md`)** — Glenn's stated rationale for
+     deferring this is that the coffee_maker example concretizes the
+     abstractions; the memo can now reference a working artifact
+     instead of a hypothetical. Cover: visibility, three layers,
+     decomposition without distribution, use-vs-discovery cost,
+     multi-root, MCP. Highest-leverage transferable artifact per
+     `openclaw_research.md` §12.
+  2. **MCP server for template_language** — adoption move post-memo.
+     Tools: list_template, describe_template, validate_solution,
+     run_solution, register_user_template. Resources:
+     template://, example://coffee_maker (now real, not hypothetical),
+     docs://template_design.txt, docs://why.md.
+  3. **AST harvest** for discovery only when scale bites. The
+     coffee_maker example showed that a project bootstrap of 2
+     templates is instant; the bottleneck is theoretical until
+     someone hits 100s.
+  4. **Phase F (DB)** further deferred per spec §16.
+  5. **Worked LLM-loop demo** against `validate_solution` + library.
+  6. **More chain_tree templates** if usage exposes gaps. Drive by
+     real usage, not completionism.
+
+### Where to start next session
+
+The architectural memo is the next concrete artifact, but it's
+substantial (Glenn estimated "2-hour memo" in the 2026-05-01
+session-close). Two ways to begin:
+
+  - **Pure write session** — open `why.md` next to coffee_maker and
+    `template_design.txt`, draft from outline. Risk: writing
+    without code context can drift.
+  - **Walk-through session** — read coffee_maker end-to-end first
+    (run.py + tests + bootstrap.py + the two templates), let the
+    concrete code surface what the memo needs to explain. Risk:
+    longer, but higher-fidelity output.
+
+Either way, the memo should reference the coffee_maker tree by file
+path so a reader can trace claim → code in one click. That's the
+visibility-wins principle applied to the memo itself.
+
+---
+
 ## DESIGN EXPLORATION — 2026-05-01 (post-impl reflection)
 
 After the implementation closed, Glenn opened a design exploration

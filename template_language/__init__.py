@@ -21,7 +21,9 @@ from .registry import (
     has_template,
     list_paths,
     list_template,
+    list_template_roots,
     load_all,
+    register_template_root,
 )
 from .render import op_list_to_json, op_list_to_python
 from .replay import generate_code
@@ -47,7 +49,9 @@ __all__ = [
     "has_template",
     "list_paths",
     "list_template",
+    "list_template_roots",
     "load_all",
+    "register_template_root",
     "op_list_to_json",
     "op_list_to_python",
     "use_template",

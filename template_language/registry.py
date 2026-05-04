@@ -51,6 +51,84 @@ class RegisteredTemplate:
 _registry: dict[str, RegisteredTemplate] = {}
 
 
+# ----------------------------------------------------------------------
+# Multi-root template namespacing.
+#
+# Each root is (package, prefix). The default root is the built-in
+# `template_language.templates` with empty prefix — paths registered
+# without a namespace prefix resolve here. Additional roots are
+# registered by user/project code via `register_template_root` and
+# claim a prefix like `"project.coffee_maker"` or `"user"`. Per
+# continue.md §"Multi-root namespacing".
+#
+# Storage and retrieval keys (`_registry`) remain the full ltree
+# path; the prefix is only used by the lazy loader to map path →
+# Python module to import.
+# ----------------------------------------------------------------------
+
+
+@dataclass
+class _Root:
+    package: str
+    prefix: str
+
+
+_DEFAULT_ROOT_PACKAGE = "template_language.templates"
+_roots: list[_Root] = [_Root(package=_DEFAULT_ROOT_PACKAGE, prefix="")]
+
+
+def register_template_root(package: str, prefix: str = "") -> None:
+    """Register a templates root.
+
+    `package` is an importable Python package containing the
+    templates tree (mirrors the ltree convention beneath itself).
+    `prefix` is the ltree namespace this root claims; empty means
+    the default catch-all root. Roots with non-empty prefixes are
+    consulted before the default.
+
+    Hard-errors on duplicate prefix (per the spec's no-silent-
+    overwrite rule). To replace, call `_reset_roots()` first.
+    """
+    if prefix:
+        for part in prefix.split("."):
+            if not part or not part.replace("_", "").isalnum():
+                raise ValueError(
+                    f"register_template_root: prefix must be dot-separated "
+                    f"identifiers, got {prefix!r}"
+                )
+    for r in _roots:
+        if r.prefix == prefix:
+            raise ValueError(
+                f"register_template_root: prefix {prefix!r} already registered "
+                f"(package={r.package!r})"
+            )
+    _roots.append(_Root(package=package, prefix=prefix))
+
+
+def _resolve_module_for_path(path: str) -> Optional[str]:
+    """Map an ltree path to the Python module that should declare it.
+    Picks the longest matching prefix (most-specific root)."""
+    for r in sorted(_roots, key=lambda x: -len(x.prefix)):
+        if r.prefix == "":
+            return f"{r.package}.{path}"
+        if path == r.prefix:
+            continue
+        if path.startswith(r.prefix + "."):
+            relative = path[len(r.prefix) + 1:]
+            return f"{r.package}.{relative}"
+    return None
+
+
+def _reset_roots() -> None:
+    """Test-only — restore the default-root-only configuration."""
+    _roots[:] = [_Root(package=_DEFAULT_ROOT_PACKAGE, prefix="")]
+
+
+def list_template_roots() -> list[dict]:
+    """Return registered roots as `[{package, prefix}, ...]`."""
+    return [{"package": r.package, "prefix": r.prefix} for r in _roots]
+
+
 def define_template(
     path: str,
     fn: Callable,
@@ -164,17 +242,17 @@ def _build_slot_schema(fn: Callable) -> list[Slot]:
     return out
 
 
-_LAZY_PACKAGE = "template_language.templates"
-
-
 def get_template(path: str) -> RegisteredTemplate:
     """Look up a registered template; lazy-import on miss.
 
     Convention: a template registered at ltree path `composites.X.foo`
-    lives in `template_language/templates/composites/X/foo.py`. If the
-    path isn't in the registry, attempt that import; the module's
-    top-level `define_template(...)` populates the registry as a side
-    effect. Recheck and return, or raise UNKNOWN_TEMPLATE.
+    lives in `<root_package>/composites/X/foo.py`. The lazy loader
+    picks the root whose prefix matches the requested path (longest
+    prefix wins; the default empty-prefix root catches everything
+    else), strips the prefix, and imports the corresponding module —
+    the module's top-level `define_template(...)` populates the
+    registry as a side effect. Recheck and return, or raise
+    UNKNOWN_TEMPLATE.
 
     Authors who deviate from the file-mirrors-path convention are
     responsible for explicitly importing their module before any
@@ -183,8 +261,14 @@ def get_template(path: str) -> RegisteredTemplate:
     if path in _registry:
         return _registry[path]
 
+    module_name = _resolve_module_for_path(path)
+    if module_name is None:
+        raise TemplateError(
+            Codes.UNKNOWN_TEMPLATE,
+            details={"path": path, "tried_module": None},
+        )
+
     import sys
-    module_name = f"{_LAZY_PACKAGE}.{path}"
     # If the module is already in sys.modules but the path isn't in the
     # registry, the registry was cleared after a previous import. Evict
     # and re-import so the module's top-level define_template runs again.
@@ -205,8 +289,8 @@ def get_template(path: str) -> RegisteredTemplate:
 
 
 def load_all() -> int:
-    """Walk `template_language.templates` and import every leaf module.
-    Each import runs the module's `define_template(...)` call as a side
+    """Walk every registered root and import every leaf module. Each
+    import runs the module's `define_template(...)` call as a side
     effect, populating the registry. Returns the count of modules that
     were *newly* loaded by this call (modules already in sys.modules
     are not double-counted).
@@ -217,11 +301,17 @@ def load_all() -> int:
     """
     import sys
 
-    pkg = importlib.import_module(_LAZY_PACKAGE)
     before = set(sys.modules)
-    for _, modname, ispkg in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
-        if not ispkg:
-            importlib.import_module(modname)
+    for r in _roots:
+        try:
+            pkg = importlib.import_module(r.package)
+        except ImportError:
+            continue
+        if not hasattr(pkg, "__path__"):
+            continue
+        for _, modname, ispkg in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
+            if not ispkg:
+                importlib.import_module(modname)
     after = set(sys.modules)
     return len(after - before)
 
