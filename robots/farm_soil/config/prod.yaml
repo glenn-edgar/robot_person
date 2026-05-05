@@ -7,3 +7,11 @@ tick_period_seconds: 900    # 15 min
 ttn_application: seeedec
 ttn_api_base: https://nam1.cloud.thethings.network/api/v3/as/applications/
 ttn_url_after: /packages/storage/uplink_message?
+
+# CIMIS connection (separate stream; appKey lives in secrets/ttn.env as CIMIS_APP_KEY)
+cimis_db_path: /var/lib/farm_soil/farm_soil_cimis.sqlite
+cimis_station_targets: 237
+cimis_spatial_targets: ""       # disabled — see dev.yaml note
+cimis_data_items: day-asce-eto
+cimis_lookback_days: 7
+cimis_api_base: https://et.water.ca.gov/api/data

@@ -7,3 +7,14 @@ tick_period_seconds: 60
 ttn_application: seeedec
 ttn_api_base: https://nam1.cloud.thethings.network/api/v3/as/applications/
 ttn_url_after: /packages/storage/uplink_message?
+
+# CIMIS connection (separate stream; appKey lives in secrets/ttn.env as CIMIS_APP_KEY)
+cimis_db_path: ./farm_soil_cimis_dev.sqlite
+cimis_station_targets: 237
+cimis_spatial_targets: ""       # disabled: raw lat/lng rejected by CIMIS for
+                                # most appKeys; zip-centroid mislocates real
+                                # field positions (elevation, coast distance).
+                                # Use station_targets only for irrigation logic.
+cimis_data_items: day-asce-eto
+cimis_lookback_days: 7
+cimis_api_base: https://et.water.ca.gov/api/data
