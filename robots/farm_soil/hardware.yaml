@@ -1,0 +1,38 @@
+# farm_soil hardware inventory
+#
+# SenseCAP S2105 soil sensors reporting over LoRaWAN to The Things
+# Network (TTN), application `seeedec`. Three devices observed; if
+# more are added, list them here.
+
+ttn:
+  application: seeedec
+  region: nam1
+  api_base: https://nam1.cloud.thethings.network/api/v3/as/applications/
+
+devices:
+  - device_id: lacima1c
+    location: TBD
+    sensor: SenseCAP S2105
+    measurements: [moisture, soil_temp, soil_ec]
+  - device_id: lacima1d
+    location: TBD
+    sensor: SenseCAP S2105
+    measurements: [moisture, soil_temp, soil_ec]
+  - device_id: lacamia1b   # note: typo'd device_id, kept verbatim
+    location: TBD
+    sensor: SenseCAP S2105
+    measurements: [moisture, soil_temp, soil_ec]
+
+measurements:
+  4108:
+    name: volumetric_water_content
+    unit: m3/m3
+    scale: 0.001        # raw value is i32 ×1000
+  4102:
+    name: soil_temperature
+    unit: degC
+    scale: 0.001
+  4103:
+    name: soil_ec
+    unit: mS/cm
+    scale: 0.001

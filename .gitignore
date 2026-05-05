@@ -22,3 +22,8 @@ Thumbs.db
 
 # Claude Code project state (per-user, not shared)
 .claude/
+
+# Local SQLite databases (test artifacts, robot dev DBs)
+*.sqlite
+*.sqlite3
+*.db

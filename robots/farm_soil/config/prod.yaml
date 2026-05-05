@@ -1,0 +1,9 @@
+# farm_soil prod config — field deployment
+db_path: /var/lib/farm_soil/farm_soil.sqlite
+lookback_hours: 24
+tick_period_seconds: 900    # 15 min
+
+# TTN connection (non-secret; the bearer token lives in secrets/ttn.env)
+ttn_application: seeedec
+ttn_api_base: https://nam1.cloud.thethings.network/api/v3/as/applications/
+ttn_url_after: /packages/storage/uplink_message?
