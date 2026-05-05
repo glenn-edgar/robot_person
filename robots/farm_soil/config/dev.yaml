@@ -1,6 +1,6 @@
 # farm_soil dev config — local bench
 db_path: ./farm_soil_dev.sqlite
-lookback_hours: 1
+lookback_hours: 48
 tick_period_seconds: 60
 
 # TTN connection (non-secret; the bearer token lives in secrets/ttn.env)

@@ -1,6 +1,6 @@
 # farm_soil prod config — field deployment
 db_path: /var/lib/farm_soil/farm_soil.sqlite
-lookback_hours: 24
+lookback_hours: 48
 tick_period_seconds: 900    # 15 min
 
 # TTN connection (non-secret; the bearer token lives in secrets/ttn.env)

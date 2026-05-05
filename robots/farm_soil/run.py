@@ -100,7 +100,7 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    lookback = args.lookback if args.lookback is not None else 36
+    lookback = args.lookback if args.lookback is not None else cfg.get("lookback_hours", 48)
 
     from farm_soil.bootstrap import bootstrap as fs_bootstrap
     from template_language import generate_code, use_template
