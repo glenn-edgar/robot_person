@@ -7,7 +7,9 @@ entry points. Builtins, DSL, and bridge functions live in sibling packages
 
 from __future__ import annotations
 
-from . import codes, engine, event_queue, node, registry, serialize, walker
+from . import bb, codes, engine, event_queue, node, registry, serialize, transport, walker
+from .bb import bb_emit, bb_subscribe
+from .transport import InProcessTransport, Transport
 from .codes import (
     CFL_CONTINUE,
     CFL_DISABLE,
@@ -119,12 +121,19 @@ __all__ = [
     "deserialize_tree",
     "serialize_chain_tree",
     "deserialize_into",
+    # transport (stage-2 stub today; stage-3 swaps the implementation)
+    "Transport",
+    "InProcessTransport",
+    "bb_emit",
+    "bb_subscribe",
     # submodules (for advanced users)
+    "bb",
     "codes",
     "engine",
     "event_queue",
     "node",
     "registry",
     "serialize",
+    "transport",
     "walker",
 ]

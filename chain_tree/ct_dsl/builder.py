@@ -46,6 +46,7 @@ class ChainTree:
         sleep: Optional[Callable[[float], None]] = None,
         get_wall_time: Optional[Callable[[], int]] = None,
         timezone: Optional[tzinfo] = None,
+        transport: Optional["ct.Transport"] = None,
     ):
         kwargs = {"tick_period": tick_period}
         if logger is not None:
@@ -60,6 +61,8 @@ class ChainTree:
             kwargs["get_wall_time"] = get_wall_time
         if timezone is not None:
             kwargs["timezone"] = timezone
+        if transport is not None:
+            kwargs["transport"] = transport
         self.engine = ct.new_engine(**kwargs)
         register_all_builtins(self.engine["registry"])
 

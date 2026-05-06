@@ -27,6 +27,7 @@ from template_language.recorder import _recorder_stack  # noqa: E402
 from template_language.registry import _registry, _reset_roots  # noqa: E402
 
 from farm_soil.bootstrap import bootstrap  # noqa: E402
+from user_templates.bootstrap import bootstrap as u_bootstrap  # noqa: E402
 
 
 def _evict_project_modules():
@@ -47,6 +48,7 @@ def _setup():
     _reset_roots()
     _evict_project_modules()
     bootstrap()
+    u_bootstrap()
     yield
     _registry.clear()
     _recorder_stack.clear()

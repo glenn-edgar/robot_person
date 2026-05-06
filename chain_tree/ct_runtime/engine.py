@@ -27,6 +27,7 @@ from typing import Any, Callable, Iterable, List, Optional
 
 from . import event_queue as eq
 from . import registry as reg
+from .transport import InProcessTransport, Transport
 from .codes import (
     CFL_CONTINUE,
     CFL_DISABLE,
@@ -71,6 +72,7 @@ def new_engine(
     sleep: Callable[[float], None] = time.sleep,
     get_wall_time: Optional[Callable[[], int]] = None,
     timezone: Optional[tzinfo] = None,
+    transport: Optional[Transport] = None,
 ) -> dict:
     """Build a fresh engine handle.
 
@@ -84,6 +86,10 @@ def new_engine(
                    and forwarded to s_engine modules built via the bridge.
                    Defaults to int(time.time()).
     timezone:      tzinfo for local-time conversions. None = system local.
+    transport:     PUB/SUB bus surfaced to leaves via bb.emit / bb.subscribe.
+                   Default is `InProcessTransport()` (stage-2 stub). Stage-3+
+                   will pass a `ZmqTransport` instead with no other call-site
+                   changes.
     """
     return {
         "kbs": {},
@@ -99,6 +105,7 @@ def new_engine(
         "sleep": sleep,
         "get_wall_time": get_wall_time or _default_get_wall_time,
         "timezone": timezone,
+        "transport": transport if transport is not None else InProcessTransport(),
         "last_tick_time": 0.0,
     }
 
